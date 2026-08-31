@@ -1,0 +1,57 @@
+# Socle local de l'EDS : entrepôt colonnaire + restitution.
+# Versions épinglées : un correcteur qui relance le projet obtient le même socle.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3
+    container_name: eds-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_ADMIN_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
+      # Indispensable : permet de créer rôles, comptes et row policies en SQL,
+      # sur quoi repose le cloisonnement pilotage / recherche.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "8123:8123"   # HTTP + interface SQL /play
+      - "9000:9000"   # protocole natif
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "${CLICKHOUSE_ADMIN_USER}", "--password", "${CLICKHOUSE_ADMIN_PASSWORD}", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  metabase:
+    image: metabase/metabase:v0.56.8
+    container_name: eds-metabase
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /metabase-data/metabase.db
+      JAVA_TIMEZONE: Europe/Paris
+    ports:
+      - "3000:3000"
+    volumes:
+      - metabase-data:/metabase-data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "-I", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+
+volumes:
+  clickhouse-data:
+  clickhouse-logs:
+  metabase-data:
