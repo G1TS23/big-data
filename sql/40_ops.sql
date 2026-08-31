@@ -62,17 +62,27 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(rejected_at)
 ORDER BY (table_source, regle, run_id);
 
--- Bilan chiffré par règle et par exécution : alimente le tableau de bord
--- d'exploitation et le chapitre « qualité » du dossier.
+-- Bilan chiffré par règle et par exécution.
+--
+-- `traitement` distingue deux situations que le tableau de bord ne doit jamais
+-- confondre :
+--   REJET        la ligne est fausse, elle n'entre pas dans silver
+--   SIGNALEMENT  la ligne est conservée mais porte une anomalie détectée.
+--                C'est le cas des incohérences qui portent sur la RELATION entre
+--                deux enregistrements (séjours qui se chevauchent, admission
+--                postérieure à un décès) : on ne peut pas savoir lequel des deux
+--                est fautif, et en écarter un au hasard fabriquerait une erreur
+--                au lieu d'en corriger une.
 CREATE TABLE IF NOT EXISTS ops.data_quality
 (
-    run_id          String,
-    table_cible     LowCardinality(String),
-    regle           LowCardinality(String),
-    lignes_entree   UInt64,
-    lignes_rejetees UInt64,
-    taux_rejet      Float64 MATERIALIZED if(lignes_entree = 0, 0, lignes_rejetees / lignes_entree),
-    mesure_at       DateTime64(3, 'Europe/Paris') DEFAULT now64(3)
+    run_id            String,
+    table_cible       LowCardinality(String),
+    regle             LowCardinality(String),
+    traitement        Enum8('REJET' = 1, 'SIGNALEMENT' = 2),
+    lignes_entree     UInt64,
+    lignes_concernees UInt64,
+    taux              Float64 MATERIALIZED if(lignes_entree = 0, 0, lignes_concernees / lignes_entree),
+    mesure_at         DateTime64(3, 'Europe/Paris') DEFAULT now64(3)
 )
 ENGINE = MergeTree
 ORDER BY (table_cible, regle, run_id);
@@ -95,3 +105,16 @@ CREATE TABLE IF NOT EXISTS ops.load_log
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(deposit_date)
 ORDER BY (target_table, deposit_date, run_id);
+
+-- Photographie des règles appliquées à chaque exécution.
+-- Un indicateur n'est reproductible que si l'on sait avec quels seuils il a
+-- été calculé : cette table lie un run_id aux valeurs qui l'ont produit.
+CREATE TABLE IF NOT EXISTS ops.parametres
+(
+    run_id      String,
+    nom         LowCardinality(String),
+    valeur      String,
+    applique_at DateTime64(3, 'Europe/Paris') DEFAULT now64(3)
+)
+ENGINE = MergeTree
+ORDER BY (run_id, nom);

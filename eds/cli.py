@@ -4,6 +4,7 @@
     eds lake                    recopie dans le lake tous les dépôts non traités
     eds lake --date 2026-08-27  rejoue une journée précise (idempotent)
     eds bronze                  charge le lake dans les tables typées
+    eds silver                  reconstruit le modèle métier, en SQL
     eds status                  état des ingestions et des derniers runs
 
 Chaque exécution porte un identifiant (run_id) inscrit sur toutes les lignes
@@ -19,7 +20,7 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import config, db, lake, loader, logging_setup
+from eds import config, db, lake, loader, logging_setup, transform
 
 ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
@@ -239,6 +240,53 @@ def cmd_bronze(settings, args, log) -> int:
         log.info("run terminé", extra={"run_id": run_id, "statut": status, **counts})
 
 
+def cmd_silver(settings, args, log) -> int:
+    """Reconstruit la couche silver depuis bronze, en SQL."""
+    client = db.connect(settings)
+    run_id = uuid.uuid4().hex
+    started = _open_run(client, run_id, "silver")
+    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    status, message = "FAILED", ""
+
+    try:
+        regles = transform.load_regles()
+        parameters = transform.to_parameters(regles)
+        transform.snapshot_parametres(client, run_id, parameters)
+        log.info("règles appliquées", extra={"run_id": run_id, **parameters})
+
+        n = transform.run_script(client, SQL_DIR / "20_silver.sql", run_id, parameters)
+        counts["ingested"] = n
+        counts["seen"] = n
+
+        tables = client.query(
+            "SELECT name, total_rows FROM system.tables "
+            "WHERE database = 'silver' ORDER BY name").result_rows
+        for name, rows in tables:
+            log.info("table construite", extra={"table": f"silver.{name}", "lignes": rows})
+
+        rejets = client.query(
+            "SELECT table_source, regle, count() FROM ops.rejects "
+            "WHERE run_id = {r:String} GROUP BY table_source, regle "
+            "ORDER BY table_source, regle", parameters={"r": run_id}).result_rows
+        for table_source, regle, n_rejets in rejets:
+            log.warning("lignes écartées", extra={"table": table_source,
+                        "regle": regle, "lignes": n_rejets})
+
+        status = "OK"
+        return 0
+
+    except Exception as exc:                      # noqa: BLE001
+        message = str(exc)
+        raise
+
+    finally:
+        try:
+            _close_run(client, run_id, "silver", started, status, counts, message)
+        except Exception:                         # noqa: BLE001
+            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
+        log.info("run terminé", extra={"run_id": run_id, "statut": status})
+
+
 def cmd_status(settings, args, log) -> int:
     client = db.connect(settings)
 
@@ -290,6 +338,8 @@ def main(argv: list[str] | None = None) -> int:
     p_bronze.add_argument("--date", help="ne charger que cette date de dépôt (AAAA-MM-JJ)")
     p_bronze.add_argument("--source", help="ne charger que ce flux")
 
+    sub.add_parser("silver", help="reconstruit la couche silver depuis bronze")
+
     sub.add_parser("status", help="état des ingestions et des derniers runs")
 
     args = parser.parse_args(argv)
@@ -302,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
 
     log = logging_setup.setup(ROOT / "logs")
     handlers = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
-                "status": cmd_status}
+                "silver": cmd_silver, "status": cmd_status}
     try:
         return handlers[args.command](settings, args, log)
     except Exception:                                  # noqa: BLE001

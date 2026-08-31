@@ -1,0 +1,35 @@
+# Règles métier de la couche silver.
+#
+# Elles vivent ici et non dans le SQL : ce sont des hypothèses du projet, pas
+# des constantes du modèle. Le sujet rappelle « vous n'êtes pas médecins » —
+# quelqu'un qui l'est doit pouvoir les réviser sans lire une ligne de requête.
+#
+# Chaque valeur est passée en paramètre aux requêtes et consignée dans
+# ops.parametres à chaque exécution : on sait toujours avec quels seuils un
+# chiffre a été produit.
+
+# ── Bornes physiologiques ───────────────────────────────────────────────────
+# Au-delà, la valeur est FAUSSE (capteur, saisie) : la ligne est écartée.
+# Fournies par le sujet.
+bornes:
+  heart_rate: {min: 20,   max: 250}    # bpm
+  spo2:       {min: 50,   max: 100}    # %
+  temp_c:     {min: 30.0, max: 45.0}   # °C
+
+# ── Seuils cliniques d'alerte ───────────────────────────────────────────────
+# En deçà ou au-delà, la valeur est VRAIE mais le patient va mal : la ligne est
+# conservée et signalée. Le sujet ne les définit pas.
+#
+# Ces seuils tombent dans des plages entièrement vides des données observées
+# (FC 50–59 et 96–100, SpO2 92–95, température 37,7–38,5), donc le décompte des
+# alertes ne dépend pas de leur réglage fin. Valeurs cliniques usuelles :
+# bradycardie, tachycardie, hypoxémie, fièvre.
+alertes:
+  heart_rate: {bas: 60, haut: 100}
+  spo2:       {bas: 92}
+  temp_c:     {haut: 38.0}
+
+# ── Autres règles ───────────────────────────────────────────────────────────
+annee_naissance_min: 1900          # borne basse de plausibilité
+readmission_fenetre_jours: 30      # définition du taux de réadmission
+k_anonymite: 5                     # effectif minimal diffusable en recherche

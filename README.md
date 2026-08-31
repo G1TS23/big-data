@@ -41,6 +41,7 @@ docker compose up -d
 eds init                                                     # bases, tables, traçabilité
 eds lake                                                     # filestorage → lake, pseudonymisé
 eds bronze                                                   # lake → tables typées
+eds silver                                                   # modèle métier fiable, en SQL
 eds status                                                   # état des dépôts et des runs
 ```
 
@@ -91,8 +92,8 @@ différents des nôtres. C'est le comportement attendu — voir `docs/EXPLOITATI
 ## Structure
 
 ```
-config/      déclaration des flux sources
 sql/         DDL et transformations bronze → silver → gold
+config/      flux sources et règles métier (seuils, bornes, fenêtres)
 eds/         orchestrateur Python (CLI, ingestion, pseudonymisation, planification)
 tests/       tests des règles métier et de la pseudonymisation
 docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2) · captures
