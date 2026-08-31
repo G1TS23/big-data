@@ -109,10 +109,10 @@ tableaux:
       - {sql: rech_duree_pathologie.sql, titre: "Durée moyenne de séjour par pathologie", forme: row,
          description: "Sur le diagnostic principal, séjours clos.",
          serie: "Durée moyenne (jours)", couleur: serie_3, valeurs: true,
-         row: 17, col: 0, size_x: 12, size_y: 9}
+         row: 17, col: 0, size_x: 24, size_y: 8}
       - {sql: rech_comorbidites.sql, titre: "Pathologies associées", forme: table,
          description: "Couples de diagnostics posés sur un même séjour.",
-         row: 17, col: 12, size_x: 12, size_y: 9}
+         row: 25, col: 0, size_x: 24, size_y: 8}
 
   # ─── Exploitation du pipeline ─────────────────────────────────────────────
   - nom: "Exploitation du pipeline"
