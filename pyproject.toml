@@ -1,0 +1,19 @@
+[project]
+name = "eds"
+version = "0.1.0"
+description = "Entrepôt de Données de Santé — orchestrateur du pipeline CHU"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[project.scripts]
+eds = "eds.cli:main"
+
+[tool.setuptools]
+packages = ["eds"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

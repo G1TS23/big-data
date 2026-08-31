@@ -1,0 +1,3 @@
+stay_id,patient_id,service_code,admission_ts,discharge_ts,admission_mode,discharge_mode
+S9000001,IPP9000001,CARDIO,2026-01-01 08:00:00,2026-01-03 10:00:00,urgence,domicile
+S9000002,IPP9000002,PNEUMO,2026-01-01 09:00:00,,programme,

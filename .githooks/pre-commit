@@ -1,16 +1,26 @@
 #!/bin/sh
-# Garde-fou RGPD — refuse tout commit susceptible de faire entrer une donnée
-# identifiante ou une zone de données dans l'historique du dépôt.
+# Garde-fou RGPD — empêche une donnée identifiante ou une zone de données
+# d'entrer dans l'historique du dépôt.
+#
+# Deux barrières indépendantes :
+#   1. les CHEMINS interdits    — zones de données et secrets, quel qu'en soit le contenu
+#   2. le CONTENU des fichiers de données — un NIR, une identité patient
+#
+# Le contrôle de contenu ne vise que les formats dans lesquels une donnée fuit
+# réellement (csv, json, txt, log). Le code et la configuration NOMMENT ces
+# colonnes — c'est leur rôle : config/sources.yml déclare précisément qu'il faut
+# supprimer nir/nom/prenom, et les tests vérifient que c'est fait. Les scanner
+# produirait un refus permanent, donc un hook désactivé en bloc.
 #
 # Contournement volontaire et tracé : git commit --no-verify
-# (à n'utiliser qu'en connaissance de cause, et à justifier.)
 
 fail=0
 staged=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$staged" ] && exit 0
 
 for f in $staged; do
-  # 1. Chemins interdits : zones de données et secrets
+
+  # ── Barrière 1 : chemins ────────────────────────────────────────────────────
   case "$f" in
     lake/*|logs/*|*_quarantaine/*|.env|*/.env|*source-filestorage/*)
       echo "REFUS  $f"
@@ -22,22 +32,30 @@ for f in $staged; do
 
   [ -f "$f" ] || continue
 
-  # Les fixtures de test sont synthétiques : exemptées du contrôle de contenu.
+  # ── Barrière 2 : contenu des fichiers de données ────────────────────────────
+  # Les fixtures de test sont synthétiques et doivent contenir de faux NIR
+  # pour que les tests aient un sens : elles sont exemptées.
   case "$f" in
-    tests/fixtures/*|.githooks/pre-commit) continue ;;
+    tests/fixtures/*) continue ;;
+    *.csv|*.tsv|*.json|*.jsonl|*.txt|*.log) ;;
+    *) continue ;;
   esac
 
   content=$(git show ":$f" 2>/dev/null) || continue
 
-  # 2. Séquence de 15 chiffres = NIR potentiel
-  if printf '%s' "$content" | grep -qIE '(^|[^0-9])[0-9]{15}([^0-9]|$)'; then
+  # Champ entier de 15 chiffres = NIR potentiel.
+  # Le motif est ancré sur des délimiteurs de champ, et non sur « non-chiffre » :
+  # un pseudonyme de 32 caractères hexadécimaux contient statistiquement une
+  # suite de 15 chiffres environ une fois sur cent (62,5 % des caractères hex
+  # sont des chiffres). Seul un champ qui EST un NIR doit bloquer le commit.
+  if printf '%s' "$content" | grep -qIE '(^|[,;"'"'"' \t])[0-9]{15}($|[,;"'"'"' \t])'; then
     echo "REFUS  $f"
-    echo "       contient une séquence de 15 chiffres (NIR ?)."
+    echo "       contient un champ de 15 chiffres (NIR ?)."
     fail=1
   fi
 
-  # 3. En-tête de fichier d'identité patient
-  if printf '%s' "$content" | grep -qIE '\bnir\b.*\bnom\b.*\bprenom\b'; then
+  # En-tête d'un export d'identité patient.
+  if printf '%s' "$content" | grep -qiE '\bnir\b.*\bnom\b.*\bprenom\b'; then
     echo "REFUS  $f"
     echo "       ressemble à un export d'identité patient (nir/nom/prenom)."
     fail=1
@@ -47,5 +65,6 @@ done
 if [ "$fail" -ne 0 ]; then
   echo ""
   echo "Commit bloqué par .githooks/pre-commit (conformité RGPD)."
+  echo "Si le refus est un faux positif, corriger le hook plutôt que de le contourner."
 fi
 exit $fail

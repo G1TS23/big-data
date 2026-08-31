@@ -1,0 +1,60 @@
+# Déclaration des flux déposés par le CHU.
+#
+# La politique de confidentialité est déclarative et centralisée ici : aucune
+# règle de pseudonymisation n'est dispersée dans le code. Ce fichier est la
+# pièce à produire pour justifier « aucune donnée identifiante n'entre ».
+#
+# mode:
+#   incremental — un dépôt par jour, ingéré une fois (idempotent sur l'empreinte)
+#   full        — nomenclature, remplacée intégralement à chaque dépôt
+
+sources:
+
+  patients:
+    format: csv
+    path: "patients/{date}/patients.csv"
+    mode: incremental
+    source_columns: [patient_id, nir, nom, prenom, birth_date, sex, region_code]
+    privacy:
+      # Pseudonyme stable : les jointures survivent, l'identité non.
+      hash:
+        - {from: patient_id, to: patient_key}
+      # Généralisation : la date complète est un quasi-identifiant.
+      generalize:
+        - {from: birth_date, to: birth_year, rule: year}
+      # Identifiants directs, supprimés avant écriture dans le lake.
+      drop: [patient_id, nir, nom, prenom, birth_date]
+    lake_columns: [patient_key, birth_year, sex, region_code]
+
+  sejours:
+    format: csv
+    path: "sejours/{date}/sejours.csv"
+    mode: incremental
+    source_columns: [stay_id, patient_id, service_code, admission_ts, discharge_ts, admission_mode, discharge_mode]
+    privacy:
+      # Même sel, même fonction : sans quoi la jointure patients↔séjours casse.
+      hash:
+        - {from: patient_id, to: patient_key}
+      drop: [patient_id]
+    lake_columns: [stay_id, patient_key, service_code, admission_ts, discharge_ts, admission_mode, discharge_mode]
+
+  diagnostics:
+    format: json
+    path: "diagnostics/{date}/diagnostics.json"
+    mode: incremental
+    # Aucune donnée identifiante : copie brute, octet pour octet.
+    # ClickHouse ingère le tableau JSON tel quel (JSONEachRow) ; l'aplatissement
+    # des codes imbriqués se fait en SQL, dans le moteur.
+
+  monitoring:
+    format: parquet
+    path: "monitoring/{date}/monitoring.parquet"
+    mode: incremental
+    # Rattaché au séjour, jamais au patient : copie brute.
+
+  referentiels:
+    format: csv
+    mode: full
+    files:
+      - {path: "referentiels/{date}/services.csv", source_columns: [service_code, service_label]}
+      - {path: "referentiels/{date}/cim10.csv",    source_columns: [code_cim10, libelle]}
