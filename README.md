@@ -44,6 +44,7 @@ eds bronze                                                   # lake → tables t
 eds silver                                                   # modèle métier fiable, en SQL
 eds gold                                                     # indicateurs, cloisonnés par usage
 eds acces                                                    # comptes + preuve du cloisonnement
+eds metabase                                                 # connexions et tableaux de bord
 eds status                                                   # état des dépôts et des runs
 ```
 
@@ -83,7 +84,7 @@ La suite de tests, elle, tourne sans ces données : `tests/fixtures/` contient d
 |---|---|
 | Pseudonymisation | HMAC-SHA256 salé sur `patient_id`, appliqué **à l'entrée du lake** — déterministe (les jointures survivent), non réversible sans le sel |
 | Minimisation | `nom`, `prenom`, `nir` supprimés ; `birth_date` généralisée en `birth_year` |
-| Cloisonnement | deux bases gold, deux rôles, deux comptes ; `eds acces` en fait la démonstration (12 contrôles) |
+| Cloisonnement | trois usages, trois comptes ClickHouse, trois collections Metabase ; `eds acces` en fait la démonstration (38 contrôles) |
 | Petits effectifs | seuil k = 5 **scellé dans les vues** de recherche, en `SQL SECURITY DEFINER` — ni paramétrable, ni contournable |
 | Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → fichier source et empreinte |
 | Garde-fou outillé | `.githooks/pre-commit` refuse tout commit contenant un NIR ou une zone de données |
@@ -99,7 +100,8 @@ config/      flux sources et règles métier (seuils, bornes, fenêtres)
 eds/         orchestrateur Python (CLI, ingestion, pseudonymisation, planification)
 tests/       tests des règles métier et de la pseudonymisation
 docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2) · captures
-metabase/    export de sérialisation des dashboards
+sql/dashboards/  requêtes des cartes, versionnées
+config/dashboards.yml  spécification des tableaux de bord
 ```
 
 ## Documentation

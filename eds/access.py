@@ -21,8 +21,9 @@ log = logging.getLogger("eds.access")
 
 # Un compte par usage, un rôle par usage, une base par usage.
 COMPTES = {
-    "bi_pilotage":  ("role_pilotage",  "gold_pilotage",  "ch_pilotage_password"),
-    "bi_recherche": ("role_recherche", "gold_recherche", "ch_recherche_password"),
+    "bi_pilotage":    ("role_pilotage",     "gold_pilotage",  "ch_pilotage_password"),
+    "bi_recherche":   ("role_recherche",    "gold_recherche", "ch_recherche_password"),
+    "bi_exploitation": ("role_exploitation", "ops",           "ch_exploitation_password"),
 }
 
 # Ce à quoi aucun compte de restitution ne doit jamais accéder.
@@ -70,10 +71,12 @@ def verifier(settings: Settings) -> list[dict]:
     constats = []
     for compte, (_role, base_autorisee, attribut) in COMPTES.items():
         mot_de_passe = getattr(settings, attribut)
-        autre = next(b for c, (_r, b, _a) in COMPTES.items() if c != compte)
+        autres = [b for c, (_r, b, _a) in COMPTES.items() if c != compte]
 
-        cibles = [(f"{base_autorisee}.*", True), (f"{autre}.*", False)]
-        cibles += [(objet, False) for objet in INTERDITS]
+        cibles = [(f"{base_autorisee}.*", True)]
+        cibles += [(f"{b}.*", False) for b in autres]
+        cibles += [(objet, False) for objet in INTERDITS
+                   if not objet.startswith(base_autorisee + ".")]
 
         for cible, attendu in cibles:
             objet = cible

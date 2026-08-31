@@ -26,6 +26,12 @@ class Settings:
     ch_password: str
     ch_pilotage_password: str
     ch_recherche_password: str
+    ch_exploitation_password: str
+    ch_docker_host: str
+    metabase_url: str
+    metabase_email: str
+    metabase_password: str
+    metabase_demo_password: str
     k_anonymite: int
 
     @property
@@ -68,6 +74,12 @@ def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
         ch_password=os.getenv("CLICKHOUSE_ADMIN_PASSWORD", ""),
         ch_pilotage_password=os.getenv("CLICKHOUSE_PILOTAGE_PASSWORD", ""),
         ch_recherche_password=os.getenv("CLICKHOUSE_RECHERCHE_PASSWORD", ""),
+        ch_exploitation_password=os.getenv("CLICKHOUSE_EXPLOITATION_PASSWORD", ""),
+        ch_docker_host=os.getenv("CLICKHOUSE_DOCKER_HOST", "clickhouse"),
+        metabase_url=os.getenv("METABASE_URL", "http://localhost:3000").rstrip("/"),
+        metabase_email=os.getenv("METABASE_ADMIN_EMAIL", ""),
+        metabase_password=os.getenv("METABASE_ADMIN_PASSWORD", ""),
+        metabase_demo_password=os.getenv("METABASE_DEMO_PASSWORD", ""),
         k_anonymite=int(os.getenv("EDS_K_ANONYMITE", "5")),
     )
 

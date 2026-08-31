@@ -7,6 +7,7 @@
     eds silver                  reconstruit le modèle métier, en SQL
     eds gold                    reconstruit les indicateurs, cloisonnés
     eds acces                   crée les comptes et éprouve le cloisonnement
+    eds metabase                provisionne les tableaux de bord
     eds status                  état des ingestions et des derniers runs
 
 Chaque exécution porte un identifiant (run_id) inscrit sur toutes les lignes
@@ -22,7 +23,7 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import access, config, db, lake, loader, logging_setup, transform
+from eds import access, config, db, lake, loader, logging_setup, metabase, transform
 
 ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
@@ -350,12 +351,122 @@ def cmd_acces(settings, args, log) -> int:
               f"{c['attendu']:<9} {c['obtenu']:<9} {marque}")
 
     manquements = [c for c in constats if not c["conforme"]]
+
+    # Second niveau : l'interface de restitution ne doit pas contourner le moteur.
+    try:
+        restitution = metabase.verifier_cloisonnement(settings)
+    except Exception as exc:                      # noqa: BLE001
+        log.warning("cloisonnement Metabase non vérifié",
+                    extra={"motif": str(exc)[:120]})
+        restitution = []
+
+    if restitution:
+        largeur = max(len(c["action"]) for c in restitution)
+        print()
+        print(f"  {'COMPTE METABASE':<24} {'ACTION':<{largeur}}  {'ATTENDU':<9} {'OBTENU':<9}")
+        for c in restitution:
+            print(f"  {c['compte']:<24} {c['action']:<{largeur}}  "
+                  f"{c['attendu']:<9} {c['obtenu']:<9} {'ok ' if c['conforme'] else 'ÉCHEC'}")
+        manquements += [c for c in restitution if not c["conforme"]]
+
     print()
     if manquements:
         log.error("cloisonnement non conforme", extra={"manquements": len(manquements)})
         return 1
-    log.info("cloisonnement vérifié", extra={"controles": len(constats)})
+    log.info("cloisonnement vérifié",
+             extra={"moteur": len(constats), "restitution": len(restitution)})
     return 0
+
+
+def cmd_metabase(settings, args, log) -> int:
+    """Provisionne la restitution : connexions, cloisonnement, tableaux de bord."""
+    import time
+
+    client = db.connect(settings)
+    run_id = uuid.uuid4().hex
+    started = _open_run(client, run_id, "metabase")
+    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    status, message = "FAILED", ""
+
+    try:
+        spec = metabase.charger_specification()
+        mb = metabase.Metabase(settings)
+        mb.connect()
+
+        # Une connexion par usage, chacune avec SON compte ClickHouse restreint :
+        # le cloisonnement du moteur se propage jusqu'à l'outil de restitution.
+        bases, groupes = {}, {}
+        for connexion in spec["connexions"]:
+            bases[connexion["nom"]] = mb.ensure_database(
+                connexion["nom"], connexion["base"], connexion["compte"],
+                getattr(settings, connexion["secret"]))
+            groupes[connexion["groupe"]] = mb.ensure_group(connexion["groupe"])
+            log.info("connexion", extra={"nom": connexion["nom"],
+                     "base": connexion["base"], "compte": connexion["compte"]})
+
+        mb.cloisonner({groupes[c["groupe"]]: bases[c["nom"]] for c in spec["connexions"]})
+        log.info("cloisonnement des bases appliqué", extra={"groupes": len(groupes)})
+
+        for base_id in bases.values():
+            mb.post(f"/api/database/{base_id}/sync_schema", {})
+        time.sleep(5)
+
+        collections = {}
+        for tableau in spec["tableaux"]:
+            collection_id = mb.ensure_collection(tableau["collection"], tableau["description"])
+            database_id = bases[tableau["connexion"]]
+            posees = []
+            for carte in tableau["cartes"]:
+                if "texte" in carte:
+                    posees.append(metabase.carte_texte(carte))
+                    continue
+                sql = (metabase.SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8")
+                carte_complete = {**carte,
+                                  "affichage": metabase.affichage(carte, sql, spec["couleurs"])}
+                card_id = mb.ensure_card(carte_complete, database_id, collection_id)
+                posees.append({"card_id": card_id, "row": carte["row"], "col": carte["col"],
+                               "size_x": carte["size_x"], "size_y": carte["size_y"],
+                               "series": [], "parameter_mappings": [],
+                               "visualization_settings": {}})
+                counts["ingested"] += 1
+
+            dashboard_id = mb.ensure_dashboard(tableau["nom"], tableau["description"],
+                                               collection_id)
+            mb.poser_cartes(dashboard_id, posees)
+            collections[tableau["collection"]] = collection_id
+            log.info("tableau de bord", extra={"nom": tableau["nom"],
+                     "cartes": len(posees), "url": f"{settings.metabase_url}/dashboard/{dashboard_id}"})
+
+        # Les collections ne se cloisonnent qu'une fois créées.
+        par_groupe = {}
+        for connexion, tableau in zip(spec["connexions"], spec["tableaux"]):
+            par_groupe[groupes[connexion["groupe"]]] = collections[tableau["collection"]]
+        mb.cloisonner_collections(par_groupe)
+        log.info("cloisonnement des collections appliqué")
+
+        for connexion in spec["connexions"]:
+            demo = connexion.get("compte_demo")
+            if not demo:
+                continue
+            mb.ensure_utilisateur(demo["email"], demo["prenom"], demo["nom"],
+                                  settings.metabase_demo_password,
+                                  groupes[connexion["groupe"]])
+            log.info("compte de démonstration", extra={"email": demo["email"],
+                     "groupe": connexion["groupe"]})
+
+        counts["seen"] = counts["ingested"]
+        status = "OK"
+        return 0
+
+    except Exception as exc:                      # noqa: BLE001
+        message = str(exc)
+        raise
+    finally:
+        try:
+            _close_run(client, run_id, "metabase", started, status, counts, message)
+        except Exception:                         # noqa: BLE001
+            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
+        log.info("run terminé", extra={"run_id": run_id, "statut": status})
 
 
 def cmd_status(settings, args, log) -> int:
@@ -415,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("acces", help="crée les comptes cloisonnés et vérifie le cloisonnement")
 
+    sub.add_parser("metabase", help="provisionne connexions et tableaux de bord")
+
     sub.add_parser("status", help="état des ingestions et des derniers runs")
 
     args = parser.parse_args(argv)
@@ -427,7 +540,8 @@ def main(argv: list[str] | None = None) -> int:
 
     log = logging_setup.setup(ROOT / "logs")
     handlers = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
-                "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces, "status": cmd_status}
+                "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces, "metabase": cmd_metabase,
+                "status": cmd_status}
     try:
         return handlers[args.command](settings, args, log)
     except Exception:                                  # noqa: BLE001

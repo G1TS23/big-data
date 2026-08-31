@@ -129,9 +129,12 @@ class TestCloisonnement:
             assert not autorise, f"{compte} accède à {autre}, le cloisonnement ne tient pas"
 
     def test_aucun_compte_n_atteint_les_couches_internes(self, settings, ch):
-        """Ni le détail patient, ni les données brutes, ni les journaux."""
-        for compte, (_role, _base, attribut) in COMPTES.items():
+        """Ni le détail patient, ni les données brutes, ni les journaux d'un
+        autre usage. L'exploitation a bien sûr accès aux siens : c'est sa base."""
+        for compte, (_role, base, attribut) in COMPTES.items():
             for objet in INTERDITS:
+                if objet.startswith(base + "."):
+                    continue
                 autorise, _ = _peut_lire(settings, compte, getattr(settings, attribut), objet)
                 assert not autorise, f"{compte} accède à {objet}"
 

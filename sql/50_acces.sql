@@ -12,10 +12,15 @@ CREATE DATABASE IF NOT EXISTS gold_recherche;
 
 CREATE ROLE IF NOT EXISTS role_pilotage;
 CREATE ROLE IF NOT EXISTS role_recherche;
+-- Troisième usage : l'exploitation du pipeline. Elle a besoin des journaux,
+-- et de rien d'autre — surtout pas des données de santé.
+CREATE ROLE IF NOT EXISTS role_exploitation;
 
 -- Révocation d'abord : rejouer ce script ne doit jamais élargir des droits.
 REVOKE ALL ON *.* FROM role_pilotage;
 REVOKE ALL ON *.* FROM role_recherche;
+REVOKE ALL ON *.* FROM role_exploitation;
 
-GRANT SELECT ON gold_pilotage.* TO role_pilotage;
+GRANT SELECT ON gold_pilotage.*  TO role_pilotage;
 GRANT SELECT ON gold_recherche.* TO role_recherche;
+GRANT SELECT ON ops.*            TO role_exploitation;
