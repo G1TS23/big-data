@@ -76,3 +76,22 @@ CREATE TABLE IF NOT EXISTS ops.data_quality
 )
 ENGINE = MergeTree
 ORDER BY (table_cible, regle, run_id);
+
+-- Un enregistrement par fichier chargé du lake vers bronze.
+CREATE TABLE IF NOT EXISTS ops.load_log
+(
+    run_id        String,
+    source        LowCardinality(String),
+    deposit_date  Date,
+    target_table  LowCardinality(String),
+    lake_path     String,
+    rows_loaded   UInt64,
+    bytes_read    UInt64,
+    duration_ms   UInt32,
+    status        Enum8('OK' = 1, 'FAILED' = 2),
+    message       String DEFAULT '',
+    loaded_at     DateTime64(3, 'Europe/Paris')
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(deposit_date)
+ORDER BY (target_table, deposit_date, run_id);

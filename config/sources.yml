@@ -25,6 +25,12 @@ sources:
       # Identifiants directs, supprimés avant écriture dans le lake.
       drop: [patient_id, nir, nom, prenom, birth_date]
     lake_columns: [patient_key, birth_year, sex, region_code]
+    bronze:
+      table: bronze.patients
+      format: CSVWithNames
+      # Schéma déclaré à l'insertion : ClickHouse lit le fichier avec ces types
+      # via input(), sans que Python ne touche une seule ligne de données.
+      schema: "patient_key String, birth_year Nullable(UInt16), sex String, region_code String"
 
   sejours:
     format: csv
@@ -37,6 +43,10 @@ sources:
         - {from: patient_id, to: patient_key}
       drop: [patient_id]
     lake_columns: [stay_id, patient_key, service_code, admission_ts, discharge_ts, admission_mode, discharge_mode]
+    bronze:
+      table: bronze.sejours
+      format: CSVWithNames
+      schema: "stay_id String, patient_key String, service_code String, admission_ts Nullable(DateTime), discharge_ts Nullable(DateTime), admission_mode String, discharge_mode String"
 
   diagnostics:
     format: json
@@ -45,16 +55,37 @@ sources:
     # Aucune donnée identifiante : copie brute, octet pour octet.
     # ClickHouse ingère le tableau JSON tel quel (JSONEachRow) ; l'aplatissement
     # des codes imbriqués se fait en SQL, dans le moteur.
+    bronze:
+      table: bronze.diagnostics
+      format: JSONEachRow
+      schema: "stay_id String, diagnostics Array(Tuple(code_cim10 String, type String))"
 
   monitoring:
     format: parquet
     path: "monitoring/{date}/monitoring.parquet"
     mode: incremental
     # Rattaché au séjour, jamais au patient : copie brute.
+    bronze:
+      table: bronze.monitoring
+      format: Parquet
+      schema: "stay_id String, ts DateTime64(6), heart_rate Nullable(Int64), spo2 Nullable(Int64), temp_c Nullable(Float64)"
+      # L'horodatage du Parquet est en microsecondes ; la table le stocke à la
+      # seconde, précision suffisante pour des constantes relevées à la minute.
+      cast: {ts: "toDateTime(ts)"}
 
   referentiels:
     format: csv
     mode: full
     files:
-      - {path: "referentiels/{date}/services.csv", source_columns: [service_code, service_label]}
-      - {path: "referentiels/{date}/cim10.csv",    source_columns: [code_cim10, libelle]}
+      - path: "referentiels/{date}/services.csv"
+        source_columns: [service_code, service_label]
+        bronze:
+          table: bronze.services
+          format: CSVWithNames
+          schema: "service_code String, service_label String"
+      - path: "referentiels/{date}/cim10.csv"
+        source_columns: [code_cim10, libelle]
+        bronze:
+          table: bronze.cim10
+          format: CSVWithNames
+          schema: "code_cim10 String, libelle String"

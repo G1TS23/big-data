@@ -3,6 +3,7 @@
     eds init                    crée la couche d'exploitation (ops.*)
     eds lake                    recopie dans le lake tous les dépôts non traités
     eds lake --date 2026-08-27  rejoue une journée précise (idempotent)
+    eds bronze                  charge le lake dans les tables typées
     eds status                  état des ingestions et des derniers runs
 
 Chaque exécution porte un identifiant (run_id) inscrit sur toutes les lignes
@@ -18,7 +19,7 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import config, db, lake, logging_setup
+from eds import config, db, lake, loader, logging_setup
 
 ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
@@ -49,12 +50,20 @@ def _close_run(client, run_id, command, started, status, counts, message=""):
     )
 
 
+# Les scripts sont joués dans cet ordre : la traçabilité existe avant la donnée.
+INIT_SCRIPTS = ["40_ops.sql", "10_bronze.sql"]
+
+
 def cmd_init(settings, args, log) -> int:
     client = db.connect(settings)
-    count = db.execute_script(client, SQL_DIR / "40_ops.sql")
-    log.info("couche d'exploitation créée", extra={"instructions": count})
-    tables = client.query("SELECT name FROM system.tables WHERE database = 'ops' ORDER BY name")
-    log.info("tables ops", extra={"tables": ", ".join(r[0] for r in tables.result_rows)})
+    for script in INIT_SCRIPTS:
+        count = db.execute_script(client, SQL_DIR / script)
+        log.info("script exécuté", extra={"fichier": script, "instructions": count})
+    tables = client.query(
+        "SELECT database, name FROM system.tables "
+        "WHERE database IN ('ops', 'bronze') ORDER BY database, name")
+    for database, name in tables.result_rows:
+        log.info("table prête", extra={"table": f"{database}.{name}"})
     return 0
 
 
@@ -140,6 +149,96 @@ def cmd_lake(settings, args, log) -> int:
         log.info("run terminé", extra={"run_id": run_id, "statut": status, **counts})
 
 
+def cmd_bronze(settings, args, log) -> int:
+    """Charge dans bronze les dépôts présents dans le lake."""
+    client = db.connect(settings)
+    run_id = uuid.uuid4().hex
+    started = _open_run(client, run_id, "bronze")
+
+    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    rows: list[list] = []
+    failures: list[str] = []
+    status = "FAILED"
+
+    try:
+        sources = config.load_sources()
+        specs = {}
+        for name, spec in sources.items():
+            for file_spec in lake._file_specs(name, spec):
+                if "bronze" in file_spec:
+                    specs[file_spec["_name"]] = file_spec["bronze"]
+
+        # On ne charge que ce que le lake contient réellement : la liste des
+        # dépôts vient du journal d'ingestion, pas d'un parcours de répertoire.
+        query = ("SELECT source, toString(deposit_date), argMax(lake_path, ingested_at) "
+                 "FROM ops.ingestion_log WHERE status = 'OK' ")
+        params = {}
+        if args.date:
+            query += "AND deposit_date = {d:Date} "
+            params["d"] = args.date
+        if args.source:
+            query += "AND splitByChar('/', source)[1] = {s:String} "
+            params["s"] = args.source
+        query += "GROUP BY source, deposit_date ORDER BY deposit_date, source"
+
+        deposits = client.query(query, parameters=params).result_rows
+        counts["seen"] = len(deposits)
+        log.info("dépôts à charger", extra={"run_id": run_id, "nb": len(deposits)})
+
+        for source, deposit_date, lake_path in deposits:
+            bronze = specs.get(source)
+            if bronze is None:
+                counts["skipped"] += 1
+                log.warning("aucune cible bronze déclarée", extra={"source": source})
+                continue
+            try:
+                # Rejeu : la partition du jour est effacée avant réinsertion.
+                loader.drop_partition(client, bronze["table"], deposit_date)
+                result = loader.load_file(settings, bronze, Path(lake_path),
+                                          deposit_date, run_id)
+                counts["ingested"] += 1
+                log.info("chargé", extra={"source": source, "date": deposit_date,
+                         "table": result.table, "lignes": result.rows_loaded,
+                         "ms": result.duration_ms})
+                rows.append([run_id, source, date.fromisoformat(deposit_date),
+                             result.table, lake_path, result.rows_loaded,
+                             result.bytes_read, result.duration_ms, "OK", "",
+                             datetime.now()])
+            except Exception as exc:              # noqa: BLE001 — un flux ne doit pas tuer le run
+                failures.append(f"{source}/{deposit_date}: {exc}")
+                log.error("échec du chargement", exc_info=True,
+                          extra={"source": source, "date": deposit_date})
+                rows.append([run_id, source, date.fromisoformat(deposit_date),
+                             bronze["table"], lake_path, 0, 0, 0, "FAILED",
+                             str(exc)[:1000], datetime.now()])
+
+        status = ("FAILED" if failures and not counts["ingested"]
+                  else "PARTIAL" if failures or counts["skipped"]
+                  else "OK")
+        return 1 if status == "FAILED" else 0
+
+    except Exception as exc:                      # noqa: BLE001
+        failures.append(f"erreur fatale : {exc}")
+        raise
+
+    finally:
+        try:
+            if rows:
+                client.insert("ops.load_log", rows, column_names=[
+                    "run_id", "source", "deposit_date", "target_table", "lake_path",
+                    "rows_loaded", "bytes_read", "duration_ms", "status", "message",
+                    "loaded_at"])
+        except Exception:                         # noqa: BLE001
+            log.error("journal de chargement non écrit", exc_info=True,
+                      extra={"run_id": run_id})
+        try:
+            _close_run(client, run_id, "bronze", started, status, counts,
+                       " | ".join(failures))
+        except Exception:                         # noqa: BLE001
+            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
+        log.info("run terminé", extra={"run_id": run_id, "statut": status, **counts})
+
+
 def cmd_status(settings, args, log) -> int:
     client = db.connect(settings)
 
@@ -187,6 +286,10 @@ def main(argv: list[str] | None = None) -> int:
     p_lake.add_argument("--source", help="ne traiter que ce flux (patients, sejours, ...)")
     p_lake.add_argument("--force", action="store_true", help="réingérer même si déjà traité")
 
+    p_bronze = sub.add_parser("bronze", help="charge le lake dans les tables bronze")
+    p_bronze.add_argument("--date", help="ne charger que cette date de dépôt (AAAA-MM-JJ)")
+    p_bronze.add_argument("--source", help="ne charger que ce flux")
+
     sub.add_parser("status", help="état des ingestions et des derniers runs")
 
     args = parser.parse_args(argv)
@@ -198,7 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     log = logging_setup.setup(ROOT / "logs")
-    handlers = {"init": cmd_init, "lake": cmd_lake, "status": cmd_status}
+    handlers = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
+                "status": cmd_status}
     try:
         return handlers[args.command](settings, args, log)
     except Exception:                                  # noqa: BLE001

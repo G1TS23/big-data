@@ -38,8 +38,10 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 git config core.hooksPath .githooks                          # garde-fou RGPD
 docker compose up -d
-eds init                                                     # bases, rôles, tables
-eds run                                                      # ingère les dépôts non traités
+eds init                                                     # bases, tables, traçabilité
+eds lake                                                     # filestorage → lake, pseudonymisé
+eds bronze                                                   # lake → tables typées
+eds status                                                   # état des dépôts et des runs
 ```
 
 - ClickHouse : http://localhost:8123/play
