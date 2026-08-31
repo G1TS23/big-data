@@ -43,45 +43,45 @@ tableaux:
     collection: "Pilotage hospitalier"
     cartes:
       - {sql: pilot_syn_sejours.sql, titre: "Séjours", forme: scalar,
-         row: 0, col: 0, size_x: 6, size_y: 3}
+         row: 0, col: 0, size_x: 6, size_y: 4}
       - {sql: pilot_syn_dms.sql, titre: "Durée moyenne de séjour", forme: scalar,
          affichage: {scalar.suffix: " j"},
-         row: 0, col: 6, size_x: 6, size_y: 3}
+         row: 0, col: 6, size_x: 6, size_y: 4}
       - {sql: pilot_syn_readmission.sql, titre: "Réadmission à 30 jours", forme: scalar,
          affichage: {scalar.suffix: " %"},
-         row: 0, col: 12, size_x: 6, size_y: 3}
+         row: 0, col: 12, size_x: 6, size_y: 4}
       - {sql: pilot_syn_alertes.sql, titre: "Relevés en alerte", forme: scalar,
-         row: 0, col: 18, size_x: 6, size_y: 3}
+         row: 0, col: 18, size_x: 6, size_y: 4}
 
       # Barres horizontales : huit libellés de service, illisibles à la verticale.
       - {sql: pilot_dms_service.sql, titre: "Durée moyenne de séjour par service", forme: row,
          description: "Séjours clos uniquement — un séjour en cours a une durée tronquée.",
          serie: "DMS (jours)", couleur: serie_1, valeurs: true,
-         row: 3, col: 0, size_x: 12, size_y: 6}
+         row: 4, col: 0, size_x: 12, size_y: 8}
       - {sql: pilot_readmission_service.sql, titre: "Réadmission à 30 jours par service de sortie", forme: row,
          description: "Rattachée au service qui a laissé sortir le patient, non à celui qui le reçoit.",
          serie: "Taux de réadmission (%)", couleur: serie_2, valeurs: true,
-         row: 3, col: 12, size_x: 12, size_y: 6}
+         row: 4, col: 12, size_x: 12, size_y: 8}
 
       - {sql: pilot_urgences_jour.sql, titre: "Passages aux urgences par jour", forme: bar,
          serie: "Passages aux urgences", couleur: serie_1, valeurs: true,
          axe_x: "Jour", axe_y: "Passages",
-         row: 9, col: 0, size_x: 12, size_y: 6}
+         row: 12, col: 0, size_x: 12, size_y: 8}
       - {sql: pilot_occupation_jour.sql, titre: "Patients présents chaque jour", forme: line,
          description: "Un patient est présent de son admission à sa sortie, bornes comprises.",
          serie: "Patients présents", couleur: serie_1,
          axe_x: "Jour", axe_y: "Patients",
-         row: 9, col: 12, size_x: 12, size_y: 6}
+         row: 12, col: 12, size_x: 12, size_y: 8}
 
       - {sql: pilot_alertes_motif.sql, titre: "Relevés en alerte par jour et par motif", forme: bar,
          description: "Hors seuil clinique : la valeur est vraie, le patient va mal. À distinguer des valeurs hors bornes physiologiques, qui sont fausses et écartées.",
          empile: true, series: ["Bradycardie", "Tachycardie", "Hypoxémie", "Fièvre"],
          axe_x: "Jour", axe_y: "Relevés",
-         row: 15, col: 0, size_x: 12, size_y: 6}
+         row: 20, col: 0, size_x: 12, size_y: 8}
       - {sql: pilot_mode_admission.sql, titre: "Mode d'admission par service", forme: bar,
          empile: true, series: ["Urgence", "Programmé", "Mutation"],
          axe_x: "Service", axe_y: "Séjours",
-         row: 15, col: 12, size_x: 12, size_y: 6}
+         row: 20, col: 12, size_x: 12, size_y: 8}
 
   # ─── Recherche clinique ───────────────────────────────────────────────────
   - nom: "Recherche clinique"
@@ -90,29 +90,29 @@ tableaux:
     collection: "Recherche clinique"
     cartes:
       - {texte: "### Données pseudonymisées\n\nAucun identifiant direct n'entre dans l'entrepôt. Les dates de naissance sont réduites à l'année, d'où un âge exact à ±1 an.\n\n**Les cohortes de moins de 5 patients ne sont pas diffusées.** Le seuil est appliqué dans les vues de l'entrepôt, pas à l'affichage : il ne peut pas être contourné par une requête.",
-         row: 0, col: 0, size_x: 12, size_y: 3}
+         row: 0, col: 0, size_x: 24, size_y: 4}
       - {sql: rech_syn_pathologies.sql, titre: "Pathologies diffusables", forme: scalar,
-         row: 0, col: 12, size_x: 6, size_y: 3}
+         row: 4, col: 0, size_x: 12, size_y: 4}
       - {sql: rech_syn_patients.sql, titre: "Plus grande cohorte", forme: scalar,
-         row: 0, col: 18, size_x: 6, size_y: 3}
+         row: 4, col: 12, size_x: 12, size_y: 4}
 
       - {sql: rech_prevalence.sql, titre: "Prévalence par pathologie", forme: row,
          description: "Nombre de patients distincts, non de diagnostics posés.",
          serie: "Patients", couleur: serie_1, valeurs: true,
-         row: 3, col: 0, size_x: 12, size_y: 7}
+         row: 8, col: 0, size_x: 12, size_y: 9}
       - {sql: rech_age_sexe.sql, titre: "Distribution par âge et par sexe", forme: bar,
          description: "Âge atteint dans l'année de l'admission.",
          series: ["Femmes", "Hommes"], valeurs: true,
          axe_x: "Tranche d'âge", axe_y: "Patients",
-         row: 3, col: 12, size_x: 12, size_y: 7}
+         row: 8, col: 12, size_x: 12, size_y: 9}
 
       - {sql: rech_duree_pathologie.sql, titre: "Durée moyenne de séjour par pathologie", forme: row,
          description: "Sur le diagnostic principal, séjours clos.",
          serie: "Durée moyenne (jours)", couleur: serie_3, valeurs: true,
-         row: 10, col: 0, size_x: 12, size_y: 7}
+         row: 17, col: 0, size_x: 12, size_y: 9}
       - {sql: rech_comorbidites.sql, titre: "Pathologies associées", forme: table,
          description: "Couples de diagnostics posés sur un même séjour.",
-         row: 10, col: 12, size_x: 12, size_y: 7}
+         row: 17, col: 12, size_x: 12, size_y: 9}
 
   # ─── Exploitation du pipeline ─────────────────────────────────────────────
   - nom: "Exploitation du pipeline"
@@ -122,21 +122,21 @@ tableaux:
     cartes:
       - {sql: expl_fraicheur.sql, titre: "Fraîcheur des données", forme: scalar,
          affichage: {scalar.suffix: " h"},
-         row: 0, col: 0, size_x: 8, size_y: 3}
+         row: 0, col: 0, size_x: 8, size_y: 4}
       - {texte: "### Traçabilité\n\nChaque ligne de l'entrepôt porte l'identifiant de l'exécution qui l'a produite. De là on remonte au fichier source et à son empreinte SHA-256.\n\n`_batch_id` → `ops.run_log` → `ops.ingestion_log`",
-         row: 0, col: 8, size_x: 16, size_y: 3}
+         row: 0, col: 8, size_x: 16, size_y: 4}
 
       - {sql: expl_runs.sql, titre: "Dernières exécutions", forme: table,
-         row: 3, col: 0, size_x: 24, size_y: 6}
+         row: 4, col: 0, size_x: 24, size_y: 9}
 
       - {sql: expl_qualite.sql, titre: "Lignes écartées, par règle", forme: row,
          description: "La donnée est fausse : elle n'entre pas dans l'entrepôt.",
          serie: "Lignes", couleur: serie_2, valeurs: true,
-         row: 9, col: 0, size_x: 12, size_y: 6}
+         row: 13, col: 0, size_x: 12, size_y: 7}
       - {sql: expl_signalements.sql, titre: "Anomalies signalées, non écartées", forme: row,
          description: "L'incohérence porte sur la relation entre deux enregistrements : en écarter un fabriquerait une erreur au lieu d'en corriger une.",
          serie: "Lignes", couleur: serie_4, valeurs: true,
-         row: 9, col: 12, size_x: 12, size_y: 6}
+         row: 13, col: 12, size_x: 12, size_y: 7}
 
       - {sql: expl_volumetrie.sql, titre: "Lignes chargées par flux et par dépôt", forme: table,
-         row: 15, col: 0, size_x: 24, size_y: 6}
+         row: 20, col: 0, size_x: 24, size_y: 9}
