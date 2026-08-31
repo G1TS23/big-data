@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS silver.fait_sejour
     tranche_age     LowCardinality(String),
     jours_depuis_sortie_precedente Nullable(Int32),
     mode_sortie_precedent LowCardinality(String),
+    -- Service du séjour précédent : le taux de réadmission se mesure sur le
+    -- service qui a laissé SORTIR le patient, pas sur celui qui le reçoit.
+    service_precedent LowCardinality(String),
     est_readmission_30j UInt8,
     -- Anomalies détectées en explorant, conservées et signalées (cf. ops.data_quality) :
     est_chevauchant  UInt8,   -- le séjour précédent du patient n'était pas terminé
@@ -177,7 +180,7 @@ INSERT INTO silver.fait_sejour
     (stay_id, patient_key, service_code, admission_ts, discharge_ts,
      admission_mode, discharge_mode, duree_jours, est_en_cours,
      age_a_admission, tranche_age, jours_depuis_sortie_precedente,
-     mode_sortie_precedent, est_readmission_30j,
+     mode_sortie_precedent, service_precedent, est_readmission_30j,
      est_chevauchant, est_apres_deces, _batch_id)
 SELECT
     stay_id, patient_key, service_code, admission_ts, discharge_ts,
@@ -195,6 +198,7 @@ SELECT
                                   '85+') AS tranche_age,
     jours_depuis_sortie_precedente,
     mode_sortie_precedent,
+    service_precedent,
     -- Réadmission : le patient est ressorti, puis revenu dans la fenêtre.
     --   écart négatif  → les séjours se chevauchent, ce n'est pas un retour
     --   mutation / transfert → le patient a changé de service ou d'établissement,
@@ -224,7 +228,10 @@ FROM (
             v.admission_ts))) AS jours_depuis_sortie_precedente,
         lagInFrame(v.discharge_mode) OVER (
             PARTITION BY v.patient_key ORDER BY v.admission_ts ASC
-            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS mode_sortie_precedent
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS mode_sortie_precedent,
+        lagInFrame(v.service_code) OVER (
+            PARTITION BY v.patient_key ORDER BY v.admission_ts ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS service_precedent
     FROM (
         SELECT stay_id,
                argMax(patient_key, _ingestion_date)    AS patient_key,

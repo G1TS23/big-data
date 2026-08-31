@@ -5,6 +5,8 @@
     eds lake --date 2026-08-27  rejoue une journée précise (idempotent)
     eds bronze                  charge le lake dans les tables typées
     eds silver                  reconstruit le modèle métier, en SQL
+    eds gold                    reconstruit les indicateurs, cloisonnés
+    eds acces                   crée les comptes et éprouve le cloisonnement
     eds status                  état des ingestions et des derniers runs
 
 Chaque exécution porte un identifiant (run_id) inscrit sur toutes les lignes
@@ -20,7 +22,7 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import config, db, lake, loader, logging_setup, transform
+from eds import access, config, db, lake, loader, logging_setup, transform
 
 ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
@@ -52,7 +54,7 @@ def _close_run(client, run_id, command, started, status, counts, message=""):
 
 
 # Les scripts sont joués dans cet ordre : la traçabilité existe avant la donnée.
-INIT_SCRIPTS = ["40_ops.sql", "10_bronze.sql"]
+INIT_SCRIPTS = ["40_ops.sql", "10_bronze.sql", "50_acces.sql"]
 
 
 def cmd_init(settings, args, log) -> int:
@@ -287,6 +289,75 @@ def cmd_silver(settings, args, log) -> int:
         log.info("run terminé", extra={"run_id": run_id, "statut": status})
 
 
+def cmd_gold(settings, args, log) -> int:
+    """Reconstruit les deux couches gold, cloisonnées par usage."""
+    client = db.connect(settings)
+    run_id = uuid.uuid4().hex
+    started = _open_run(client, run_id, "gold")
+    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    status, message = "FAILED", ""
+
+    try:
+        regles = transform.load_regles()
+        parameters = transform.to_parameters(regles)
+        transform.snapshot_parametres(client, run_id, parameters)
+
+        # Le seuil et le définisseur sont SCELLÉS dans les vues de recherche :
+        # ni l'un ni l'autre ne doit pouvoir être fourni par l'appelant.
+        substitutions = {"K_ANONYMITE": parameters["k"], "DEFINER": settings.ch_user}
+
+        for script in ("30_gold_pilotage.sql", "31_gold_recherche.sql"):
+            n = transform.run_script(client, SQL_DIR / script, run_id,
+                                     parameters, substitutions)
+            counts["ingested"] += n
+            log.info("script exécuté", extra={"fichier": script, "instructions": n})
+
+        for base in ("gold_pilotage", "gold_recherche"):
+            objets = client.query(
+                "SELECT name, engine FROM system.tables WHERE database = {d:String} "
+                "ORDER BY name", parameters={"d": base}).result_rows
+            for name, engine in objets:
+                log.info("objet gold", extra={"objet": f"{base}.{name}", "type": engine})
+
+        counts["seen"] = counts["ingested"]
+        status = "OK"
+        return 0
+
+    except Exception as exc:                      # noqa: BLE001
+        message = str(exc)
+        raise
+    finally:
+        try:
+            _close_run(client, run_id, "gold", started, status, counts, message)
+        except Exception:                         # noqa: BLE001
+            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
+        log.info("run terminé", extra={"run_id": run_id, "statut": status})
+
+
+def cmd_acces(settings, args, log) -> int:
+    """Crée les comptes cloisonnés puis éprouve le cloisonnement."""
+    client = db.connect(settings)
+    comptes = access.ensure_users(client, settings)
+    log.info("comptes de restitution", extra={"comptes": ", ".join(comptes)})
+
+    constats = access.verifier(settings)
+    largeur = max(len(c["objet"]) for c in constats)
+    print()
+    print(f"  {'COMPTE':<14} {'OBJET':<{largeur}}  {'ATTENDU':<9} {'OBTENU':<9} ")
+    for c in constats:
+        marque = "ok " if c["conforme"] else "ÉCHEC"
+        print(f"  {c['compte']:<14} {c['objet']:<{largeur}}  "
+              f"{c['attendu']:<9} {c['obtenu']:<9} {marque}")
+
+    manquements = [c for c in constats if not c["conforme"]]
+    print()
+    if manquements:
+        log.error("cloisonnement non conforme", extra={"manquements": len(manquements)})
+        return 1
+    log.info("cloisonnement vérifié", extra={"controles": len(constats)})
+    return 0
+
+
 def cmd_status(settings, args, log) -> int:
     client = db.connect(settings)
 
@@ -340,6 +411,10 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("silver", help="reconstruit la couche silver depuis bronze")
 
+    sub.add_parser("gold", help="reconstruit les indicateurs, cloisonnés par usage")
+
+    sub.add_parser("acces", help="crée les comptes cloisonnés et vérifie le cloisonnement")
+
     sub.add_parser("status", help="état des ingestions et des derniers runs")
 
     args = parser.parse_args(argv)
@@ -352,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
 
     log = logging_setup.setup(ROOT / "logs")
     handlers = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
-                "silver": cmd_silver, "status": cmd_status}
+                "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces, "status": cmd_status}
     try:
         return handlers[args.command](settings, args, log)
     except Exception:                                  # noqa: BLE001

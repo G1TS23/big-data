@@ -24,6 +24,8 @@ class Settings:
     ch_port: int
     ch_user: str
     ch_password: str
+    ch_pilotage_password: str
+    ch_recherche_password: str
     k_anonymite: int
 
     @property
@@ -64,6 +66,8 @@ def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
         ch_port=int(os.getenv("CLICKHOUSE_PORT", "8123")),
         ch_user=os.getenv("CLICKHOUSE_ADMIN_USER", "default"),
         ch_password=os.getenv("CLICKHOUSE_ADMIN_PASSWORD", ""),
+        ch_pilotage_password=os.getenv("CLICKHOUSE_PILOTAGE_PASSWORD", ""),
+        ch_recherche_password=os.getenv("CLICKHOUSE_RECHERCHE_PASSWORD", ""),
         k_anonymite=int(os.getenv("EDS_K_ANONYMITE", "5")),
     )
 

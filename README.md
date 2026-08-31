@@ -42,6 +42,8 @@ eds init                                                     # bases, tables, tr
 eds lake                                                     # filestorage → lake, pseudonymisé
 eds bronze                                                   # lake → tables typées
 eds silver                                                   # modèle métier fiable, en SQL
+eds gold                                                     # indicateurs, cloisonnés par usage
+eds acces                                                    # comptes + preuve du cloisonnement
 eds status                                                   # état des dépôts et des runs
 ```
 
@@ -81,8 +83,8 @@ La suite de tests, elle, tourne sans ces données : `tests/fixtures/` contient d
 |---|---|
 | Pseudonymisation | HMAC-SHA256 salé sur `patient_id`, appliqué **à l'entrée du lake** — déterministe (les jointures survivent), non réversible sans le sel |
 | Minimisation | `nom`, `prenom`, `nir` supprimés ; `birth_date` généralisée en `birth_year` |
-| Cloisonnement | deux bases gold, deux rôles ClickHouse, deux comptes Metabase distincts |
-| Petits effectifs | seuil k = 5 appliqué **dans les vues** de recherche, pas dans le dashboard |
+| Cloisonnement | deux bases gold, deux rôles, deux comptes ; `eds acces` en fait la démonstration (12 contrôles) |
+| Petits effectifs | seuil k = 5 **scellé dans les vues** de recherche, en `SQL SECURITY DEFINER` — ni paramétrable, ni contournable |
 | Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → fichier source et empreinte |
 | Garde-fou outillé | `.githooks/pre-commit` refuse tout commit contenant un NIR ou une zone de données |
 

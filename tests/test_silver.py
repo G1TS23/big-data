@@ -140,12 +140,12 @@ class TestReadmission:
                           f"FROM silver.fait_sejour") == 0
 
     def test_taux_plausible(self, ch):
-        """Un taux de réadmission hospitalier se situe autour de 10 %.
-        Ce test aurait attrapé la version qui en annonçait 59 %."""
+        """Dénominateur : les séjours clos dont le patient POUVAIT revenir.
+        Ce test aurait attrapé la version qui annonçait 59 %."""
         taux = scalar(ch, "SELECT countIf(est_readmission_30j = 1) / countIf("
-                          "mode_sortie_precedent NOT IN ('', 'deces', 'mutation', 'transfert')) "
-                          "FROM silver.fait_sejour")
-        assert 0.02 < taux < 0.30, f"taux de réadmission invraisemblable : {taux:.1%}"
+                          "est_en_cours = 0 AND discharge_mode "
+                          "NOT IN ('deces','mutation','transfert')) FROM silver.fait_sejour")
+        assert 0.01 < taux < 0.25, f"taux de réadmission invraisemblable : {taux:.1%}"
 
 
 class TestAnomaliesSignalees:

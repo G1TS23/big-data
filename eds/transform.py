@@ -60,10 +60,21 @@ def snapshot_parametres(client, run_id: str, parameters: dict) -> None:
     )
 
 
-def run_script(client, path: Path, run_id: str, parameters: dict) -> int:
-    """Exécute un script SQL, instruction par instruction, avec les règles."""
+def run_script(client, path: Path, run_id: str, parameters: dict,
+               substitutions: dict | None = None) -> int:
+    """Exécute un script SQL, instruction par instruction, avec les règles.
+
+    `parameters` alimente les marqueurs {nom:Type}, résolus par le moteur à
+    chaque exécution. `substitutions` remplace des jetons $$NOM$$ dans le texte
+    AVANT envoi : c'est réservé à ce qui doit être scellé dans un objet
+    persistant — le seuil d'anonymat d'une vue, par exemple, qui ne doit
+    surtout pas devenir un paramètre que l'appelant pourrait régler.
+    """
     params = {**parameters, "b": run_id}
-    statements = db.split_statements(path.read_text(encoding="utf-8"))
+    sql = path.read_text(encoding="utf-8")
+    for nom, valeur in (substitutions or {}).items():
+        sql = sql.replace(f"$${nom}$$", str(valeur))
+    statements = db.split_statements(sql)
     for index, statement in enumerate(statements, 1):
         try:
             client.command(statement, parameters=params)
