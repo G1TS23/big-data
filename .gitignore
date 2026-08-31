@@ -1,0 +1,41 @@
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+# EDS_SALT : le sel de pseudonymisation ne doit jamais être versionné.
+.env
+.env.local
+*.key
+*.pem
+
+# ─── Données ──────────────────────────────────────────────────────────────────
+# Aucune donnée patient ne doit entrer dans le dépôt, même pseudonymisée.
+# Les données sources restent dans le filestorage du CHU (lecture seule, hors dépôt).
+lake/
+logs/
+_quarantaine/
+source-filestorage/
+*.csv
+*.parquet
+*.jsonl
+# Exception : fixtures de test, synthétiques et anonymisées.
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.parquet
+!tests/fixtures/**/*.jsonl
+
+# ─── Volumes des conteneurs ───────────────────────────────────────────────────
+volumes/
+clickhouse-data/
+metabase-data/
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+# ─── Outils et OS ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store

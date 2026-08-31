@@ -1,0 +1,103 @@
+# Entrepôt de Données de Santé — CHU
+
+Projet fil rouge · Module Big Data · M2 · Épreuve E05 (BC05, compétences C27 → C31)
+
+Construction d'un entrepôt de données de santé pour un CHU, depuis le dépôt quotidien
+de fichiers hétérogènes jusqu'aux tableaux de bord de pilotage et de recherche clinique,
+avec une chaîne de traitement automatisée et conforme au RGPD.
+
+## Architecture
+
+Patron médaillon, transformation en SQL dans le moteur (ELT) :
+
+```
+filestorage  →  lake  →  bronze  →  silver  →  gold  →  dashboards
+(CHU, RO)     (copie +   (typé)    (nettoyé,  (KPI par   (Metabase)
+            pseudonymisé)          dédupliqué) usage)
+```
+
+| Composant | Rôle |
+|---|---|
+| Python | orchestration : copie des fichiers, envoi du SQL, planification |
+| ClickHouse | entrepôt colonnaire — c'est lui qui transforme |
+| Metabase | restitution : dashboards Pilotage, Recherche, Exploitation |
+
+Les transformations ne sortent jamais du moteur : Python pilote, il ne calcule pas.
+
+## Prérequis
+
+- Docker et Docker Compose
+- Python ≥ 3.11
+
+## Installation
+
+```bash
+cp .env.example .env
+python3 -c "import secrets; print(secrets.token_hex(32))"   # → EDS_SALT dans .env
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+git config core.hooksPath .githooks                          # garde-fou RGPD
+docker compose up -d
+eds init                                                     # bases, rôles, tables
+eds run                                                      # ingère les dépôts non traités
+```
+
+- ClickHouse : http://localhost:8123/play
+- Metabase : http://localhost:3000
+
+## Les données ne sont pas dans ce dépôt
+
+Le CHU dépose ses fichiers dans un espace en **lecture seule**, extérieur au projet.
+Ces fichiers contiennent l'identité réelle des patients (nom, prénom, NIR) : ils ne
+sont **jamais** versionnés, jamais copiés tels quels, et l'identité est supprimée dès
+l'entrée du lake.
+
+Renseigner leur emplacement dans `.env` :
+
+```
+EDS_SOURCE_PATH=../eds-chu-sujet/source-filestorage
+```
+
+Attendu à ce chemin :
+
+```
+source-filestorage/
+├── patients/<AAAA-MM-JJ>/patients.csv
+├── sejours/<AAAA-MM-JJ>/sejours.csv
+├── diagnostics/<AAAA-MM-JJ>/diagnostics.json
+├── monitoring/<AAAA-MM-JJ>/monitoring.parquet
+└── referentiels/<AAAA-MM-JJ>/{services,cim10}.csv
+```
+
+La suite de tests, elle, tourne sans ces données : `tests/fixtures/` contient des
+échantillons synthétiques et anonymisés.
+
+## Conformité
+
+| Exigence | Mise en œuvre |
+|---|---|
+| Pseudonymisation | HMAC-SHA256 salé sur `patient_id`, appliqué **à l'entrée du lake** — déterministe (les jointures survivent), non réversible sans le sel |
+| Minimisation | `nom`, `prenom`, `nir` supprimés ; `birth_date` généralisée en `birth_year` |
+| Cloisonnement | deux bases gold, deux rôles ClickHouse, deux comptes Metabase distincts |
+| Petits effectifs | seuil k = 5 appliqué **dans les vues** de recherche, pas dans le dashboard |
+| Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → fichier source et empreinte |
+| Garde-fou outillé | `.githooks/pre-commit` refuse tout commit contenant un NIR ou une zone de données |
+
+Le sel (`EDS_SALT`) n'est pas versionné : une réinstallation produit des pseudonymes
+différents des nôtres. C'est le comportement attendu — voir `docs/EXPLOITATION.md`.
+
+## Structure
+
+```
+config/      déclaration des flux sources
+sql/         DDL et transformations bronze → silver → gold
+eds/         orchestrateur Python (CLI, ingestion, pseudonymisation, planification)
+tests/       tests des règles métier et de la pseudonymisation
+docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2) · captures
+metabase/    export de sérialisation des dashboards
+```
+
+## Documentation
+
+- `docs/DOSSIER.md` — besoin, architecture justifiée, traitements, indicateurs, limites
+- `docs/EXPLOITATION.md` — lancement, planification, reprise sur incident

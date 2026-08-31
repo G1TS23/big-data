@@ -1,0 +1,51 @@
+#!/bin/sh
+# Garde-fou RGPD — refuse tout commit susceptible de faire entrer une donnée
+# identifiante ou une zone de données dans l'historique du dépôt.
+#
+# Contournement volontaire et tracé : git commit --no-verify
+# (à n'utiliser qu'en connaissance de cause, et à justifier.)
+
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+for f in $staged; do
+  # 1. Chemins interdits : zones de données et secrets
+  case "$f" in
+    lake/*|logs/*|*_quarantaine/*|.env|*/.env|*source-filestorage/*)
+      echo "REFUS  $f"
+      echo "       zone de données ou secret — ne doit pas être versionné."
+      fail=1
+      continue
+      ;;
+  esac
+
+  [ -f "$f" ] || continue
+
+  # Les fixtures de test sont synthétiques : exemptées du contrôle de contenu.
+  case "$f" in
+    tests/fixtures/*|.githooks/pre-commit) continue ;;
+  esac
+
+  content=$(git show ":$f" 2>/dev/null) || continue
+
+  # 2. Séquence de 15 chiffres = NIR potentiel
+  if printf '%s' "$content" | grep -qIE '(^|[^0-9])[0-9]{15}([^0-9]|$)'; then
+    echo "REFUS  $f"
+    echo "       contient une séquence de 15 chiffres (NIR ?)."
+    fail=1
+  fi
+
+  # 3. En-tête de fichier d'identité patient
+  if printf '%s' "$content" | grep -qIE '\bnir\b.*\bnom\b.*\bprenom\b'; then
+    echo "REFUS  $f"
+    echo "       ressemble à un export d'identité patient (nir/nom/prenom)."
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Commit bloqué par .githooks/pre-commit (conformité RGPD)."
+fi
+exit $fail

@@ -1,0 +1,6 @@
+clickhouse-connect>=0.8
+pyarrow>=17
+python-dotenv>=1.0
+PyYAML>=6.0
+APScheduler>=3.10
+pytest>=8.0
