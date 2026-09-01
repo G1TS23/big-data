@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS silver.fait_diagnostic
     stay_id         String,
     patient_key     String,
     code_cim10      LowCardinality(String),
+    -- Tranche d'âge du patient AU MOMENT du séjour où le code a été posé.
+    --
+    -- Elle est recopiée depuis fait_sejour parce que « prévalence par tranche
+    -- d'âge » est un usage de premier plan : sans elle, croiser l'âge et la
+    -- pathologie imposerait une jointure FAIT À FAIT, la plus coûteuse de
+    -- toutes. Le sexe, lui, reste dans dim_patient : l'y chercher n'est qu'une
+    -- jointure vers une dimension de six mille lignes.
+    --
+    -- Seule la TRANCHE est recopiée, jamais l'âge exact : fait_diagnostic
+    -- alimente la recherche, et l'âge précis n'y entre pas.
+    tranche_age     LowCardinality(String),
     type_diagnostic LowCardinality(String),
     est_principal   UInt8,
     _batch_id       LowCardinality(String) CODEC(ZSTD(1)),
@@ -282,8 +293,9 @@ WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour)
    OR code   NOT IN (SELECT code_cim10 FROM silver.dim_cim10);
 
 INSERT INTO silver.fait_diagnostic
-    (stay_id, patient_key, code_cim10, type_diagnostic, est_principal, _batch_id)
-SELECT a.stay_id, s.patient_key, a.code, a.type_diagnostic,
+    (stay_id, patient_key, code_cim10, tranche_age, type_diagnostic,
+     est_principal, _batch_id)
+SELECT a.stay_id, s.patient_key, a.code, s.tranche_age, a.type_diagnostic,
        toUInt8(a.type_diagnostic = 'principal'), {b:String}
 FROM (
     -- Accès par nom, pour la même raison. `type_diagnostic` plutôt que `type` :

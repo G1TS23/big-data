@@ -20,13 +20,18 @@
 -- Un garde-fou que l'appelant peut régler n'en est pas un.
 -- uniqExact et non uniq : une approximation pourrait laisser passer une
 -- cohorte de 4 patients ou en masquer une de 6.
+--
+-- Toute colonne projetée porte un alias EXPLICITE. Sans lui, ClickHouse nomme
+-- « c.code_cim10 » la colonne issue d'une référence qualifiée, et le chercheur
+-- doit écrire des accents graves autour du nom pour la filtrer. Une couche de
+-- restitution ne doit pas exposer les alias de ses jointures.
 
 CREATE DATABASE IF NOT EXISTS gold_recherche;
 
 -- ─── Prévalence : taille des cohortes par pathologie ───────────────────────
 CREATE OR REPLACE VIEW gold_recherche.coh_prevalence
 DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
-SELECT c.code_cim10, c.libelle,
+SELECT c.code_cim10 AS code_cim10, c.libelle AS libelle,
        uniqExact(f.patient_key) AS patients,
        count() AS diagnostics,
        countIf(f.est_principal = 1) AS dont_principal
@@ -51,19 +56,32 @@ HAVING uniqExact(s.patient_key) >= $$K_ANONYMITE$$;
 -- petites, donc là que la suppression protège réellement quelqu'un.
 CREATE OR REPLACE VIEW gold_recherche.coh_pathologie_age_sexe
 DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
-SELECT c.code_cim10, c.libelle, s.tranche_age, p.sex,
-       uniqExact(s.patient_key) AS patients
+SELECT c.code_cim10 AS code_cim10, c.libelle AS libelle, f.tranche_age, p.sex,
+       uniqExact(f.patient_key) AS patients
 FROM silver.fait_diagnostic AS f
-INNER JOIN silver.fait_sejour  AS s ON s.stay_id = f.stay_id
-INNER JOIN silver.dim_patient  AS p ON p.patient_key = s.patient_key
-INNER JOIN silver.dim_cim10    AS c ON c.code_cim10 = f.code_cim10
-GROUP BY c.code_cim10, c.libelle, s.tranche_age, p.sex
-HAVING uniqExact(s.patient_key) >= $$K_ANONYMITE$$;
+INNER JOIN silver.dim_patient AS p ON p.patient_key = f.patient_key
+INNER JOIN silver.dim_cim10   AS c ON c.code_cim10 = f.code_cim10
+GROUP BY c.code_cim10, c.libelle, f.tranche_age, p.sex
+HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
+
+-- ─── Prévalence par tranche d'âge ──────────────────────────────────────────
+-- Le croisement demandé le plus souvent : à quel âge rencontre-t-on telle
+-- pathologie. Les cohortes y sont plus grandes qu'en ajoutant le sexe, donc
+-- moins souvent masquées par le seuil de diffusion.
+CREATE OR REPLACE VIEW gold_recherche.coh_pathologie_age
+DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
+SELECT c.code_cim10 AS code_cim10, c.libelle AS libelle, f.tranche_age,
+       uniqExact(f.patient_key) AS patients,
+       countIf(f.est_principal = 1) AS dont_principal
+FROM silver.fait_diagnostic AS f
+INNER JOIN silver.dim_cim10 AS c ON c.code_cim10 = f.code_cim10
+GROUP BY c.code_cim10, c.libelle, f.tranche_age
+HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
 
 -- ─── Durée de séjour par pathologie ────────────────────────────────────────
 CREATE OR REPLACE VIEW gold_recherche.coh_duree_pathologie
 DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
-SELECT c.code_cim10, c.libelle,
+SELECT c.code_cim10 AS code_cim10, c.libelle AS libelle,
        uniqExact(s.patient_key) AS patients,
        count() AS sejours_clos,
        round(avg(s.duree_jours), 2) AS duree_moyenne,

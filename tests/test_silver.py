@@ -136,6 +136,18 @@ class TestDiagnosticsAplatis:
         assert scalar(ch, "SELECT countIf(n > 1) FROM (SELECT countIf(est_principal = 1) AS n "
                           "FROM silver.fait_diagnostic GROUP BY stay_id)") == 0
 
+    def test_la_tranche_dage_suit_celle_du_sejour(self, ch):
+        """Recopiée depuis fait_sejour pour éviter une jointure fait à fait.
+        Elle doit rester rigoureusement identique à sa source."""
+        assert scalar(ch, "SELECT countIf(d.tranche_age != s.tranche_age) "
+                          "FROM silver.fait_diagnostic AS d "
+                          "INNER JOIN silver.fait_sejour AS s ON s.stay_id = d.stay_id") == 0
+
+    def test_la_tranche_dage_appartient_a_son_domaine(self, ch):
+        tranches = {t for (t,) in ch.query(
+            "SELECT DISTINCT tranche_age FROM silver.fait_diagnostic").result_rows}
+        assert tranches <= {"00-17", "18-44", "45-64", "65-74", "75-84", "85+"}
+
     def test_est_principal_suit_le_type(self, ch):
         assert scalar(ch, "SELECT countIf((type_diagnostic = 'principal') != (est_principal = 1)) "
                           "FROM silver.fait_diagnostic") == 0

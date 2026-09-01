@@ -96,10 +96,18 @@ class TestSeuilDeDiffusion:
             assert "SQL SECURITY DEFINER" in ddl, f"{name} s'exécute avec les droits de l'appelant"
             assert "{k:" not in ddl, f"{name} expose le seuil en paramètre"
 
+    def test_aucun_alias_de_jointure_ne_fuit_dans_les_colonnes(self, ch):
+        """Une colonne nommée « c.code_cim10 » obligerait le chercheur à
+        l'entourer d'accents graves pour la filtrer. Une couche de restitution
+        n'expose pas les alias de ses jointures."""
+        fuites = ch.query("SELECT database, name FROM system.columns "
+                          "WHERE database LIKE 'gold%' AND name LIKE '%.%'").result_rows
+        assert not fuites, f"colonnes qualifiées exposées : {fuites}"
+
     def test_aucune_cohorte_sous_le_seuil_n_est_diffusee(self, ch):
         k = load_regles()["k_anonymite"]
-        for vue in ("coh_prevalence", "coh_age_sexe", "coh_pathologie_age_sexe",
-                    "coh_duree_pathologie", "coh_comorbidites"):
+        for vue in ("coh_prevalence", "coh_age_sexe", "coh_pathologie_age",
+                    "coh_pathologie_age_sexe", "coh_duree_pathologie", "coh_comorbidites"):
             assert scalar(ch, f"SELECT countIf(patients < {k}) FROM gold_recherche.{vue}") == 0
 
     def test_la_clause_de_seuil_est_bien_active(self, ch):
