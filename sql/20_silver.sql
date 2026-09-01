@@ -259,7 +259,10 @@ SELECT {b:String}, 'fait_diagnostic', concat(stay_id, '/', code),
           'sejour_inconnu', 'code_cim10_inconnu'),
        code
 FROM (
-    SELECT stay_id, d.1 AS code
+    -- Accès par NOM et non par position : d.1 et d.2 désigneraient des rangs,
+    -- et une réorganisation du tuple dans 10_bronze.sql inverserait le code et
+    -- le type sans lever la moindre erreur.
+    SELECT stay_id, d.code_cim10 AS code
     FROM bronze.diagnostics ARRAY JOIN diagnostics AS d
 )
 WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour)
@@ -267,10 +270,13 @@ WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour)
 
 INSERT INTO silver.fait_diagnostic
     (stay_id, patient_key, code_cim10, type_diagnostic, est_principal, _batch_id)
-SELECT a.stay_id, s.patient_key, a.code, a.type,
-       toUInt8(a.type = 'principal'), {b:String}
+SELECT a.stay_id, s.patient_key, a.code, a.type_diagnostic,
+       toUInt8(a.type_diagnostic = 'principal'), {b:String}
 FROM (
-    SELECT stay_id, d.1 AS code, d.2 AS type
+    -- Accès par nom, pour la même raison. `type_diagnostic` plutôt que `type` :
+    -- TYPE est un mot-clé du langage, et l'alias porte ainsi le nom de la
+    -- colonne qu'il alimente.
+    SELECT stay_id, d.code_cim10 AS code, d.type AS type_diagnostic
     FROM bronze.diagnostics ARRAY JOIN diagnostics AS d
 ) AS a
 INNER JOIN silver.fait_sejour AS s ON s.stay_id = a.stay_id

@@ -110,7 +110,44 @@ class TestQualite:
                 f"{table} : {gardees} gardées + {rejetees} rejetées != {entrees} entrées")
 
 
+class TestDiagnosticsAplatis:
+    """Le JSON imbriqué est aplati par le moteur. Deux façons de se tromper
+    silencieusement : lire le tuple par position, ou produire une table vide."""
+
+    def test_les_diagnostics_ne_sont_pas_vides(self, ch):
+        """Un contrôle d'intégrité passe À VIDE : « aucune ligne invalide » est
+        vrai sur une table sans lignes. Il faut donc l'affirmer séparément."""
+        assert scalar(ch, "SELECT count() FROM silver.fait_diagnostic") > 30000
+
+    def test_le_type_de_diagnostic_appartient_a_son_domaine(self, ch):
+        """Le test qui attrape une inversion du tuple : si code et type étaient
+        permutés, cette colonne contiendrait des codes CIM-10."""
+        valeurs = {v for (v,) in ch.query(
+            "SELECT DISTINCT type_diagnostic FROM silver.fait_diagnostic").result_rows}
+        assert valeurs == {"principal", "associe"}, f"valeurs inattendues : {valeurs}"
+
+    def test_le_code_a_bien_la_forme_d_un_code_cim10(self, ch):
+        """Une lettre suivie de deux chiffres. L'inversion produirait
+        « principal » ou « associe »."""
+        assert scalar(ch, "SELECT countIf(NOT match(code_cim10, '^[A-Z][0-9]{2}$')) "
+                          "FROM silver.fait_diagnostic") == 0
+
+    def test_un_seul_diagnostic_principal_par_sejour(self, ch):
+        assert scalar(ch, "SELECT countIf(n > 1) FROM (SELECT countIf(est_principal = 1) AS n "
+                          "FROM silver.fait_diagnostic GROUP BY stay_id)") == 0
+
+    def test_est_principal_suit_le_type(self, ch):
+        assert scalar(ch, "SELECT countIf((type_diagnostic = 'principal') != (est_principal = 1)) "
+                          "FROM silver.fait_diagnostic") == 0
+
+
 class TestIntegriteReferentielle:
+    def test_les_tables_ne_sont_pas_vides(self, ch):
+        """Précaution générale : les contrôles qui suivent comptent des
+        violations, et zéro violation sur zéro ligne ne prouve rien."""
+        for table in ("dim_patient", "fait_sejour", "fait_diagnostic", "fait_monitoring"):
+            assert scalar(ch, f"SELECT count() FROM silver.{table}") > 0, table
+
     def test_tout_sejour_pointe_un_patient_connu(self, ch):
         assert scalar(ch, "SELECT count() FROM silver.fait_sejour "
                           "WHERE patient_key NOT IN (SELECT patient_key FROM silver.dim_patient)") == 0
