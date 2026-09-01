@@ -14,17 +14,16 @@ from __future__ import annotations
 import logging
 
 from eds import sql
-from eds.config import Settings
 
 SCRIPTS = ["30_gold_pilotage.sql", "31_gold_recherche.sql"]
 
 BASES = ("gold_pilotage", "gold_recherche")
 
 
-def construire(run, settings: Settings, log: logging.Logger) -> None:
-    regles = sql.load_regles()
-    substitutions = {"K_ANONYMITE": sql.to_parameters(regles)["k"],
-                     "DEFINER": settings.ch_user}
+def construire(run, log: logging.Logger) -> None:
+    # L'exécution porte déjà la configuration : inutile de la repasser.
+    substitutions = {"K_ANONYMITE": sql.to_parameters(sql.load_regles())["k"],
+                     "DEFINER": run.settings.ch_user}
     sql.executer_avec_regles(run, SCRIPTS, log, substitutions)
 
     for base in BASES:

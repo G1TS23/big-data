@@ -169,14 +169,14 @@ def cmd_bronze(settings, args, log) -> int:
 def cmd_silver(settings, args, log) -> int:
     """Reconstruit la couche silver depuis bronze, en SQL."""
     with Execution(settings, "silver", "instruction", log) as run:
-        silver.construire(run, settings, log)
+        silver.construire(run, log)
     return run.code_retour
 
 
 def cmd_gold(settings, args, log) -> int:
     """Reconstruit les deux couches gold, cloisonnées par usage."""
     with Execution(settings, "gold", "instruction", log) as run:
-        gold.construire(run, settings, log)
+        gold.construire(run, log)
     return run.code_retour
 
 
@@ -336,6 +336,9 @@ def _table(client, requete: str) -> str:
 
 # ─── Ligne de commande ──────────────────────────────────────────────────────
 
+# Toutes les commandes reçoivent la même signature (settings, args, log) pour
+# être appelables uniformément depuis cette table ; celles qui n'ont pas
+# d'option n'utilisent pas `args`.
 COMMANDES = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
              "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces,
              "metabase": cmd_metabase, "status": cmd_status}
