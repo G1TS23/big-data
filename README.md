@@ -46,6 +46,7 @@ eds gold                                                     # indicateurs, cloi
 eds acces                                                    # comptes + preuve du cloisonnement
 eds metabase                                                 # connexions et tableaux de bord
 eds run                                                      # la chaîne complète, en une commande
+eds scheduler                                                # la déclenche à intervalle régulier
 eds status                                                   # état des dépôts et des runs
 ```
 
@@ -109,7 +110,7 @@ sql/         DDL et transformations bronze → silver → gold
 config/      flux sources et règles métier (seuils, bornes, fenêtres)
 eds/         orchestrateur — un module par étape du pipeline :
                lake · bronze · silver · gold, plus config, execution,
-               pseudonymize, sql, access, metabase, cli
+               pseudonymize, sql, verrou, access, metabase, cli
 
              silver.py et gold.py sont volontairement minces : ces couches se
              transforment en SQL, dans sql/. Trente lignes de Python en face de

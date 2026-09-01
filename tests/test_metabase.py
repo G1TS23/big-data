@@ -4,9 +4,8 @@ Les réglages d'affichage se testent sans Metabase : ce sont des dictionnaires.
 Le cloisonnement, lui, exige l'instance, et est ignoré si elle est absente.
 """
 import pytest
-import yaml
 
-from eds.config import ROOT, load_settings
+from eds.config import load_settings
 from eds.metabase import SQL_DASHBOARDS, affichage, charger_specification, colonnes
 
 SPEC = charger_specification()

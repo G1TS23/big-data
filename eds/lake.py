@@ -6,8 +6,8 @@ zone de travail locale, partitionnée par date de dépôt.
 Deux régimes, selon ce que le fichier contient :
 
 - **Copie brute, octet pour octet** (diagnostics, monitoring, référentiels).
-  Le lake est alors fidèle à la source et l'empreinte du fichier copié est
-  identique à celle de l'original — c'est vérifié, pas supposé.
+  Le lake est alors fidèle à la source, ce qu'un test vérifie en comparant les
+  octets eux-mêmes.
 
 - **Copie pseudonymisée** (patients, séjours). Ces fichiers portent l'identité
   en clair. Les recopier tels quels ferait entrer nom, prénom et NIR dans la
@@ -32,8 +32,9 @@ définitif, un fichier est TOUJOURS complet. Une interruption ne laisse qu'un
 résidu « .partiel », que l'exécution suivante efface avant de recommencer.
 
 C'est plus sûr que ce qui précédait, qui relisait le fichier copié pour
-comparer son empreinte : le contrôle détectait la corruption, mais laissait le
-fichier tronqué à sa place définitive.
+comparer son empreinte : ce contrôle détectait la corruption, mais laissait le
+fichier tronqué à sa place définitive. Le renommage, lui, empêche qu'il y
+arrive.
 """
 from __future__ import annotations
 
@@ -48,8 +49,6 @@ from pathlib import Path
 from eds.pseudonymize import apply_privacy
 
 DATE_DIR = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_CHUNK = 1 << 20
-
 # Suffixe des écritures en cours. Un fichier qui le porte est incomplet par
 # définition : il n'a pas atteint le renommage final.
 PARTIEL = ".partiel"
