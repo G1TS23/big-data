@@ -35,6 +35,9 @@ venv/
 .mypy_cache/
 *.egg-info/
 
+# Les captures du dossier sont un livrable : elles restent versionnées.
+!docs/img/**
+
 # ─── Outils et OS ─────────────────────────────────────────────────────────────
 .idea/
 .vscode/
