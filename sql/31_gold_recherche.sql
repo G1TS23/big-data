@@ -43,13 +43,17 @@ HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
 -- ─── Description de cohorte : distribution par âge et sexe ─────────────────
 CREATE OR REPLACE VIEW gold_recherche.coh_age_sexe
 DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
-SELECT s.tranche_age, p.sex,
-       uniqExact(s.patient_key) AS patients,
-       count() AS sejours
-FROM silver.fait_sejour AS s
-INNER JOIN silver.dim_patient AS p ON p.patient_key = s.patient_key
-GROUP BY s.tranche_age, p.sex
-HAVING uniqExact(s.patient_key) >= $$K_ANONYMITE$$;
+-- Lue depuis fait_diagnostic, seule table qui porte la tranche d'âge. La
+-- population est rigoureusement la même : les 14 864 séjours retenus ont tous
+-- au moins un diagnostic codé, donc aucun patient ni aucun séjour n'échappe au
+-- décompte. uniqExact(stay_id) et non count(), qui compterait des diagnostics.
+SELECT f.tranche_age AS tranche_age, p.sex AS sex,
+       uniqExact(f.patient_key) AS patients,
+       uniqExact(f.stay_id) AS sejours
+FROM silver.fait_diagnostic AS f
+INNER JOIN silver.dim_patient AS p ON p.patient_key = f.patient_key
+GROUP BY f.tranche_age, p.sex
+HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
 
 -- ─── Le croisement qui fait vraiment mordre le seuil ───────────────────────
 -- Pathologie × tranche d'âge × sexe : c'est là que les cohortes deviennent

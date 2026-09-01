@@ -96,6 +96,15 @@ class TestSeuilDeDiffusion:
             assert "SQL SECURITY DEFINER" in ddl, f"{name} s'exécute avec les droits de l'appelant"
             assert "{k:" not in ddl, f"{name} expose le seuil en paramètre"
 
+    def test_la_cohorte_par_age_couvre_toute_la_population(self, ch):
+        """La vue est lue depuis fait_diagnostic. Elle ne vaut que si tout
+        séjour retenu porte au moins un diagnostic — sinon des patients
+        disparaîtraient silencieusement de la distribution."""
+        assert scalar(ch, "SELECT count() FROM silver.fait_sejour "
+                          "WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_diagnostic)") == 0
+        assert scalar(ch, "SELECT sum(sejours) FROM gold_recherche.coh_age_sexe") \
+            == scalar(ch, "SELECT count() FROM silver.fait_sejour")
+
     def test_aucun_alias_de_jointure_ne_fuit_dans_les_colonnes(self, ch):
         """Une colonne nommée « c.code_cim10 » obligerait le chercheur à
         l'entourer d'accents graves pour la filtrer. Une couche de restitution

@@ -136,12 +136,24 @@ class TestDiagnosticsAplatis:
         assert scalar(ch, "SELECT countIf(n > 1) FROM (SELECT countIf(est_principal = 1) AS n "
                           "FROM silver.fait_diagnostic GROUP BY stay_id)") == 0
 
-    def test_la_tranche_dage_suit_celle_du_sejour(self, ch):
-        """Recopiée depuis fait_sejour pour éviter une jointure fait à fait.
-        Elle doit rester rigoureusement identique à sa source."""
-        assert scalar(ch, "SELECT countIf(d.tranche_age != s.tranche_age) "
-                          "FROM silver.fait_diagnostic AS d "
-                          "INNER JOIN silver.fait_sejour AS s ON s.stay_id = d.stay_id") == 0
+    def test_la_tranche_dage_correspond_a_l_age_du_sejour(self, ch):
+        """La tranche est dérivée de l'âge porté par le séjour. Les bornes
+        doivent se correspondre exactement, sinon une cohorte serait rangée
+        dans la mauvaise classe."""
+        assert scalar(ch, """
+            SELECT countIf(d.tranche_age != multiIf(
+                       s.age_a_admission < 18, '00-17', s.age_a_admission < 45, '18-44',
+                       s.age_a_admission < 65, '45-64', s.age_a_admission < 75, '65-74',
+                       s.age_a_admission < 85, '75-84', '85+'))
+            FROM silver.fait_diagnostic AS d
+            INNER JOIN silver.fait_sejour AS s ON s.stay_id = d.stay_id""") == 0
+
+    def test_la_tranche_n_existe_qu_a_un_seul_endroit(self, ch):
+        """Portée par deux tables, elle finirait par diverger."""
+        porteuses = {t for (t,) in ch.query(
+            "SELECT DISTINCT `table` FROM system.columns "
+            "WHERE database = 'silver' AND name = 'tranche_age'").result_rows}
+        assert porteuses == {"fait_diagnostic"}
 
     def test_la_tranche_dage_appartient_a_son_domaine(self, ch):
         tranches = {t for (t,) in ch.query(

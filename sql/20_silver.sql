@@ -59,8 +59,11 @@ CREATE TABLE IF NOT EXISTS silver.fait_sejour
 
     duree_jours     Nullable(Int32),
     est_en_cours    UInt8,
+    -- L'âge, mais PAS sa tranche : la tranche est une généralisation destinée
+    -- à la diffusion, et c'est fait_diagnostic qui alimente la recherche. La
+    -- porter ici aussi la définirait à deux endroits, avec le risque qu'ils
+    -- divergent.
     age_a_admission Int16,
-    tranche_age     LowCardinality(String),
     jours_depuis_sortie_precedente Nullable(Int32),
     mode_sortie_precedent LowCardinality(String),
     -- Service du séjour précédent : le taux de réadmission se mesure sur le
@@ -200,7 +203,7 @@ WHERE s.admission_ts IS NULL
 INSERT INTO silver.fait_sejour
     (stay_id, patient_key, service_code, admission_ts, discharge_ts,
      admission_mode, discharge_mode, duree_jours, est_en_cours,
-     age_a_admission, tranche_age, jours_depuis_sortie_precedente,
+     age_a_admission, jours_depuis_sortie_precedente,
      mode_sortie_precedent, service_precedent, est_readmission_30j,
      est_chevauchant, est_apres_deces, _batch_id)
 SELECT
@@ -209,14 +212,6 @@ SELECT
     duree_jours,
     est_en_cours,
     age_a_admission,
-    -- Tranches cliniques. Volontairement dans le modèle et non en configuration :
-    -- c'est la granularité de diffusion de la recherche, pas un réglage.
-    multiIf(age_a_admission < 18, '00-17',
-            age_a_admission < 45, '18-44',
-            age_a_admission < 65, '45-64',
-            age_a_admission < 75, '65-74',
-            age_a_admission < 85, '75-84',
-                                  '85+') AS tranche_age,
     jours_depuis_sortie_precedente,
     mode_sortie_precedent,
     service_precedent,
@@ -295,7 +290,17 @@ WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour)
 INSERT INTO silver.fait_diagnostic
     (stay_id, patient_key, code_cim10, tranche_age, type_diagnostic,
      est_principal, _batch_id)
-SELECT a.stay_id, s.patient_key, a.code, s.tranche_age, a.type_diagnostic,
+SELECT a.stay_id, s.patient_key, a.code,
+       -- Tranches cliniques, définies ICI et nulle part ailleurs. Volontairement
+       -- dans le modèle et non en configuration : c'est la granularité de
+       -- diffusion de la recherche, pas un réglage.
+       multiIf(s.age_a_admission < 18, '00-17',
+               s.age_a_admission < 45, '18-44',
+               s.age_a_admission < 65, '45-64',
+               s.age_a_admission < 75, '65-74',
+               s.age_a_admission < 85, '75-84',
+                                       '85+') AS tranche_age,
+       a.type_diagnostic,
        toUInt8(a.type_diagnostic = 'principal'), {b:String}
 FROM (
     -- Accès par nom, pour la même raison. `type_diagnostic` plutôt que `type` :
