@@ -163,9 +163,14 @@ INSERT INTO gold_pilotage.kpi_occupation_jour
 SELECT jour, service_code, service_label, count() AS patients_presents, {b:String}
 FROM (
     SELECT s.service_code, d.service_label,
-           toDate(s.admission_ts) + arrayJoin(range(toUInt32(
+           -- greatest(…, 1) est vital : un séjour PROGRAMMÉ, admis dans le
+           -- futur, donnerait une durée négative, que toUInt32 convertirait en
+           -- 4 294 967 295. range() tenterait alors d'allouer trente-deux
+           -- gigaoctets et l'étape mourrait. Un tel séjour compte pour sa seule
+           -- journée d'admission.
+           toDate(s.admission_ts) + arrayJoin(range(greatest(toInt32(
                dateDiff('day', toDate(s.admission_ts),
-                        toDate(ifNull(s.discharge_ts, now()))) + 1))) AS jour
+                        toDate(ifNull(s.discharge_ts, now()))) + 1), 1))) AS jour
     FROM silver.fait_sejour AS s
     INNER JOIN silver.dim_service AS d ON d.service_code = s.service_code
 )

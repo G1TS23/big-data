@@ -187,6 +187,49 @@ class TestReadmission:
         assert 0.01 < taux < 0.25, f"taux de réadmission invraisemblable : {taux:.1%}"
 
 
+class TestReproductibilite:
+    """Le sujet exige des indicateurs reproductibles. Une fenêtre dont l'ordre
+    n'est pas total ne l'est pas."""
+
+    def test_la_readmission_ne_change_pas_d_une_execution_a_l_autre(self, ch):
+        """Deux séjours admis à la même seconde existent dans les données. Sans
+        départage, « le précédent » varie et le taux avec lui."""
+        avant = dict(ch.query("SELECT stay_id, est_readmission_30j "
+                              "FROM silver.fait_sejour").result_rows)
+        import subprocess, sys
+        from eds.config import ROOT
+        subprocess.run([str(ROOT / ".venv/bin/eds"), "silver"],
+                       capture_output=True, check=True, cwd=ROOT)
+        apres = dict(ch.query("SELECT stay_id, est_readmission_30j "
+                              "FROM silver.fait_sejour").result_rows)
+        differences = {k for k in avant if avant[k] != apres.get(k)}
+        assert not differences, f"{len(differences)} séjours ont changé de verdict"
+
+    def test_l_ordre_des_fenetres_est_total(self, ch):
+        """Le départage doit figurer dans TOUTES les fenêtres du script, sinon
+        deux colonnes dérivées du même classement pourraient diverger."""
+        from eds.config import ROOT
+        script = (ROOT / "sql" / "20_silver.sql").read_text(encoding="utf-8")
+        fenetres = script.count("PARTITION BY v.patient_key ORDER BY v.admission_ts")
+        departages = script.count("ORDER BY v.admission_ts ASC, v.stay_id ASC")
+        assert fenetres == departages, "une fenêtre n'a pas d'ordre total"
+
+
+class TestOccupationBornee:
+    def test_une_admission_future_ne_dilate_pas_l_univers(self, ch):
+        """Un séjour PROGRAMMÉ donnerait une durée négative, que toUInt32
+        convertirait en 4 294 967 295 : range() tenterait d'allouer trente-deux
+        gigaoctets. La garde le ramène à sa seule journée d'admission."""
+        jours = scalar(ch, "SELECT length(range(greatest(toInt32("
+                           "dateDiff('day', toDate(now() + INTERVAL 90 DAY), toDate(now())) + 1), 1)))")
+        assert jours == 1
+
+    def test_un_sejour_normal_couvre_toutes_ses_journees(self, ch):
+        jours = scalar(ch, "SELECT length(range(greatest(toInt32("
+                           "dateDiff('day', toDate('2026-08-26'), toDate('2026-08-30')) + 1), 1)))")
+        assert jours == 5           # du 26 au 30 inclus
+
+
 class TestAnomaliesSignalees:
     def test_chevauchements_signales_et_non_rejetes(self, ch, dernier_run):
         """L'anomalie porte sur la relation entre deux séjours : en écarter un

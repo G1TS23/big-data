@@ -108,6 +108,16 @@ PARTITION BY toYYYYMMDD(ts)
 ORDER BY (stay_id, ts);
 
 -- ─── Reconstruction ─────────────────────────────────────────────────────────
+--
+-- Les tables sont vidées avant d'être réécrites. Une panne au milieu laisse
+-- donc silver incomplète — mais jamais INCOHÉRENTE, et l'exécution suivante la
+-- reconstruit entièrement depuis bronze, qui n'a pas bougé. `eds run` s'arrête
+-- d'ailleurs à la première étape en échec, si bien que gold ne calcule jamais
+-- sur une silver à moitié écrite.
+--
+-- Une reconstruction sur tables temporaires suivie d'un échange atomique
+-- éviterait la fenêtre d'indisponibilité ; à cette volumétrie, la simplicité
+-- l'emporte.
 
 TRUNCATE TABLE silver.dim_patient;
 TRUNCATE TABLE silver.dim_service;
@@ -223,14 +233,17 @@ FROM (
         -- Sortie du séjour précédent du même patient, dans l'ordre chronologique.
         toInt32OrNull(toString(dateDiff('day',
             lagInFrame(v.discharge_ts) OVER (
-                PARTITION BY v.patient_key ORDER BY v.admission_ts ASC
+                -- stay_id départage les ex aequo : deux séjours admis à la même
+                -- seconde rendraient sinon « le précédent » non déterminé, et
+                -- le taux de réadmission varierait d'une exécution à l'autre.
+                PARTITION BY v.patient_key ORDER BY v.admission_ts ASC, v.stay_id ASC
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW),
             v.admission_ts))) AS jours_depuis_sortie_precedente,
         lagInFrame(v.discharge_mode) OVER (
-            PARTITION BY v.patient_key ORDER BY v.admission_ts ASC
+            PARTITION BY v.patient_key ORDER BY v.admission_ts ASC, v.stay_id ASC
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS mode_sortie_precedent,
         lagInFrame(v.service_code) OVER (
-            PARTITION BY v.patient_key ORDER BY v.admission_ts ASC
+            PARTITION BY v.patient_key ORDER BY v.admission_ts ASC, v.stay_id ASC
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS service_precedent
     FROM (
         SELECT stay_id,
