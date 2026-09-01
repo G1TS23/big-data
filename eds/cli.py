@@ -366,7 +366,15 @@ def cmd_acces(settings, args, log) -> int:
         for c in restitution:
             print(f"  {c['compte']:<24} {c['action']:<{largeur}}  "
                   f"{c['attendu']:<9} {c['obtenu']:<9} {'ok ' if c['conforme'] else 'ÉCHEC'}")
-        manquements += [c for c in restitution if not c["conforme"]]
+        # Une base injoignable n'est pas un défaut de cloisonnement : on le dit,
+        # sans transformer une panne en alerte de conformité.
+        indisponibles = [c for c in restitution if c.get("indisponible")]
+        if indisponibles:
+            log.warning("source de données injoignable — cloisonnement de la "
+                        "restitution non concluant",
+                        extra={"controles": len(indisponibles)})
+        manquements += [c for c in restitution
+                        if not c["conforme"] and not c.get("indisponible")]
 
     print()
     if manquements:

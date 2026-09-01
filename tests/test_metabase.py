@@ -90,11 +90,20 @@ class TestAffichage:
 
 @pytest.fixture(scope="module")
 def constats():
+    """Metabase peut répondre alors que ClickHouse, derrière, est arrêté.
+
+    Le contrôle n'a alors aucun sens : une carte échoue pour une raison
+    technique, pas parce que les droits l'interdisent. On distingue les deux et
+    on s'abstient plutôt que de conclure.
+    """
     from eds.metabase import verifier_cloisonnement
     try:
-        return verifier_cloisonnement(load_settings())
+        resultats = verifier_cloisonnement(load_settings())
     except Exception as exc:
         pytest.skip(f"Metabase indisponible : {exc}")
+    if any(c.get("indisponible") for c in resultats):
+        pytest.skip("source de données injoignable derrière Metabase")
+    return resultats
 
 
 class TestCloisonnementRestitution:

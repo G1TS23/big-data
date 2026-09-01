@@ -43,7 +43,9 @@ def ch():
     from eds import db
     from eds.config import load_settings
     try:
-        client = db.connect(load_settings())
+        # Délai court : sans le socle, on veut savoir tout de suite qu'on
+        # saute, pas attendre les reconnexions du pilote.
+        client = db.connect(load_settings(), connect_timeout=2, send_receive_timeout=5)
         client.command("SELECT 1")
     except Exception as exc:
         pytest.skip(f"ClickHouse indisponible : {exc}")

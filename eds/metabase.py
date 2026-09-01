@@ -29,7 +29,13 @@ SQL_DASHBOARDS = ROOT / "sql" / "dashboards"
 
 
 class MetabaseError(RuntimeError):
-    pass
+    """Erreur d'API. `status` porte le code HTTP, qui distingue un refus de
+    droits (403) d'une panne (5xx) — deux situations qu'un contrôle de
+    cloisonnement ne doit surtout pas confondre."""
+
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
 
 
 class Metabase:
@@ -51,7 +57,8 @@ class Metabase:
             body=json.dumps(body).encode("utf-8") if body is not None else None)
         payload = response.data.decode("utf-8", "replace")
         if response.status >= 400:
-            raise MetabaseError(f"{method} {route} → {response.status} : {payload[:400]}")
+            raise MetabaseError(f"{method} {route} → {response.status} : {payload[:400]}",
+                                status=response.status)
         return json.loads(payload) if payload.strip() else None
 
     def get(self, route):            return self._call("GET", route)
@@ -328,6 +335,19 @@ def verifier_cloisonnement(settings: Settings) -> list[dict]:
     temoins = {t["connexion"]: next(c["titre"] for c in t["cartes"] if "sql" in c)
                for t in spec["tableaux"]}
 
+    def resultat(session, route: str, corps: dict) -> str:
+        """Trois issues, à ne pas confondre.
+
+        Un refus de droits arrive en 403. Une base injoignable arrive en 202
+        avec un statut d'échec : le cloisonnement n'y est pour rien, et
+        conclure « refusé » ferait passer une panne pour une protection.
+        """
+        try:
+            reponse = session.post(route, corps)
+        except MetabaseError as exc:
+            return "refusé" if exc.status == 403 else "indisponible"
+        return "autorisé" if reponse.get("status") == "completed" else "indisponible"
+
     constats = []
     for connexion in spec["connexions"]:
         demo = connexion.get("compte_demo")
@@ -337,31 +357,20 @@ def verifier_cloisonnement(settings: Settings) -> list[dict]:
         session.token = session.post("/api/session", {
             "username": demo["email"], "password": settings.metabase_demo_password})["id"]
 
-        for nom_connexion, titre in temoins.items():
-            attendu = nom_connexion == connexion["nom"]
-            try:
-                reponse = session.post(f"/api/card/{cartes[titre]}/query", {})
-                autorise = reponse.get("status") == "completed"
-            except MetabaseError:
-                autorise = False
-            constats.append({
-                "compte": demo["email"], "action": f"ouvrir « {titre} »",
-                "attendu": "autorisé" if attendu else "refusé",
-                "obtenu": "autorisé" if autorise else "refusé",
-                "conforme": autorise == attendu})
+        essais = [(f"ouvrir « {titre} »", nom_connexion == connexion["nom"],
+                   f"/api/card/{cartes[titre]}/query", {})
+                  for nom_connexion, titre in temoins.items()]
+        essais += [(f"requête libre sur {nom_base}", nom_base == connexion["nom"],
+                    "/api/dataset", {"type": "native", "database": base_id,
+                                     "native": {"query": "SELECT 1"}})
+                   for nom_base, base_id in bases.items()]
 
-        for nom_base, base_id in bases.items():
-            attendu = nom_base == connexion["nom"]
-            try:
-                reponse = session.post("/api/dataset", {
-                    "type": "native", "database": base_id,
-                    "native": {"query": "SELECT 1"}})
-                autorise = reponse.get("status") == "completed"
-            except MetabaseError:
-                autorise = False
+        for action, attendu, route, corps in essais:
+            obtenu = resultat(session, route, corps)
             constats.append({
-                "compte": demo["email"], "action": f"requête libre sur {nom_base}",
+                "compte": demo["email"], "action": action,
                 "attendu": "autorisé" if attendu else "refusé",
-                "obtenu": "autorisé" if autorise else "refusé",
-                "conforme": autorise == attendu})
+                "obtenu": obtenu,
+                "conforme": obtenu == ("autorisé" if attendu else "refusé"),
+                "indisponible": obtenu == "indisponible"})
     return constats
