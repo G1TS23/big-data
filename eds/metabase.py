@@ -290,8 +290,14 @@ def affichage(spec: dict, sql: str, palette: dict) -> dict:
     # une même entité garde sa couleur d'une carte à l'autre.
     if spec.get("couleur"):
         reglages["series_settings"] = {mesures[0]: {"color": palette[spec["couleur"]]}}
+    elif spec.get("rampe"):
+        # Séries ORDONNÉES : une seule teinte du clair au foncé, l'œil lit la
+        # progression. Des couleurs distinctes nieraient l'ordre.
+        rampe = palette[spec["rampe"]]
+        reglages["series_settings"] = {
+            nom: {"color": rampe[index]} for index, nom in enumerate(mesures[:len(rampe)])}
     elif len(mesures) > 1:
-        slots = [palette[f"serie_{i}"] for i in range(1, len(palette) + 1)]
+        slots = [palette[f"serie_{i}"] for i in range(1, 5)]
         reglages["series_settings"] = {
             nom: {"color": slots[index]} for index, nom in enumerate(mesures[:len(slots)])}
     return reglages
