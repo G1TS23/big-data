@@ -241,15 +241,29 @@ def cmd_metabase(settings, args, log) -> int:
                 requete = (metabase.SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8")
                 complete = {**carte,
                             "affichage": metabase.affichage(carte, requete, spec["couleurs"])}
-                posees.append({"card_id": mb.ensure_card(complete, database_id, collection_id),
+                card_id = mb.ensure_card(complete, database_id, collection_id)
+                # Une carte à variable doit être RELIÉE au filtre, sans quoi le
+                # filtre s'affiche sans rien piloter.
+                liaisons = [{"parameter_id": metabase.identifiant(f"param-{carte['variable']}"),
+                             "card_id": card_id,
+                             "target": ["variable", ["template-tag", carte["variable"]]]}
+                            ] if carte.get("variable") else []
+                posees.append({"card_id": card_id,
                                "row": carte["row"], "col": carte["col"],
                                "size_x": carte["size_x"], "size_y": carte["size_y"],
-                               "series": [], "parameter_mappings": [],
+                               "series": [], "parameter_mappings": liaisons,
                                "visualization_settings": {}})
                 run.traites += 1
 
+            obsoletes = mb.archiver_cartes_obsoletes(
+                collection_id, {c["titre"] for c in tableau["cartes"] if "sql" in c})
+            if obsoletes:
+                log.warning("cartes archivées, absentes de la spécification",
+                            extra={"collection": tableau["collection"],
+                                   "cartes": ", ".join(obsoletes)})
+
             dashboard_id = mb.ensure_dashboard(tableau["nom"], tableau["description"],
-                                               collection_id)
+                                               collection_id, tableau.get("filtres"))
             mb.poser_cartes(dashboard_id, posees)
             log.info("tableau de bord", extra={"nom": tableau["nom"], "cartes": len(posees),
                      "url": f"{settings.metabase_url}/dashboard/{dashboard_id}"})

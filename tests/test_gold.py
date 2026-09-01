@@ -96,14 +96,20 @@ class TestSeuilDeDiffusion:
             assert "SQL SECURITY DEFINER" in ddl, f"{name} s'exécute avec les droits de l'appelant"
             assert "{k:" not in ddl, f"{name} expose le seuil en paramètre"
 
-    def test_la_cohorte_par_age_couvre_toute_la_population(self, ch):
-        """La vue est lue depuis fait_diagnostic. Elle ne vaut que si tout
-        séjour retenu porte au moins un diagnostic — sinon des patients
-        disparaîtraient silencieusement de la distribution."""
-        assert scalar(ch, "SELECT count() FROM silver.fait_sejour "
-                          "WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_diagnostic)") == 0
-        assert scalar(ch, "SELECT sum(sejours) FROM gold_recherche.coh_age_sexe") \
-            == scalar(ch, "SELECT count() FROM silver.fait_sejour")
+    def test_la_description_de_cohorte_porte_sur_un_diagnostic(self, ch):
+        """Le sujet demande « description de COHORTE : distribution par âge et
+        sexe », après « taille des cohortes par diagnostic ». Une distribution
+        tous diagnostics confondus ne décrirait aucune cohorte : la vue doit
+        donc porter le code."""
+        colonnes = {c for (c,) in ch.query(
+            "SELECT name FROM system.columns WHERE database = 'gold_recherche' "
+            "AND `table` = 'coh_pathologie_age_sexe'").result_rows}
+        assert {"code_cim10", "tranche_age", "sex"} <= colonnes
+
+    def test_aucune_vue_ne_distribue_l_age_hors_cohorte(self, ch):
+        vues = {v for (v,) in ch.query(
+            "SELECT name FROM system.tables WHERE database = 'gold_recherche'").result_rows}
+        assert "coh_age_sexe" not in vues, "vue globale sans besoin correspondant"
 
     def test_aucun_alias_de_jointure_ne_fuit_dans_les_colonnes(self, ch):
         """Une colonne nommée « c.code_cim10 » obligerait le chercheur à
@@ -115,8 +121,8 @@ class TestSeuilDeDiffusion:
 
     def test_aucune_cohorte_sous_le_seuil_n_est_diffusee(self, ch):
         k = load_regles()["k_anonymite"]
-        for vue in ("coh_prevalence", "coh_age_sexe", "coh_pathologie_age",
-                    "coh_pathologie_age_sexe", "coh_duree_pathologie", "coh_comorbidites"):
+        for vue in ("coh_prevalence", "coh_pathologie_age", "coh_pathologie_age_sexe",
+                    "coh_duree_pathologie", "coh_comorbidites"):
             assert scalar(ch, f"SELECT countIf(patients < {k}) FROM gold_recherche.{vue}") == 0
 
     def test_la_clause_de_seuil_est_bien_active(self, ch):

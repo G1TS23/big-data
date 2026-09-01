@@ -94,6 +94,10 @@ tableaux:
     description: "Cohortes par pathologie, par âge et par sexe. Aucune donnée identifiante."
     connexion: "EDS — Recherche"
     collection: "Recherche clinique"
+    # Le filtre pilote la carte de description de cohorte : « distribution par
+    # âge et sexe » décrit UNE cohorte, donc un diagnostic à la fois.
+    filtres:
+      - {nom: "Pathologie", variable: pathologie, defaut: "I21"}
     cartes:
       - {texte: "### Données pseudonymisées\n\nAucun identifiant direct n'entre dans l'entrepôt. Les dates de naissance sont réduites à l'année, d'où un âge exact à ±1 an.\n\n**Les cohortes de moins de 5 patients ne sont pas diffusées.** Le seuil est appliqué dans les vues de l'entrepôt, pas à l'affichage : il ne peut pas être contourné par une requête.",
          row: 0, col: 0, size_x: 24, size_y: 4}
@@ -106,8 +110,9 @@ tableaux:
          description: "Nombre de patients distincts, non de diagnostics posés.",
          serie: "Patients", couleur: serie_1, valeurs: true,
          row: 8, col: 0, size_x: 12, size_y: 9}
-      - {sql: rech_age_sexe.sql, titre: "Distribution par âge et par sexe", forme: bar,
-         description: "Âge atteint dans l'année de l'admission.",
+      - {sql: rech_cohorte_age_sexe.sql, titre: "Description de la cohorte", forme: bar,
+         description: "Distribution par âge et par sexe des patients porteurs de la pathologie choisie. Âge atteint dans l'année de l'admission.",
+         variable: pathologie, variable_titre: "Pathologie", variable_defaut: "I21",
          series: ["Femmes", "Hommes"], valeurs: true,
          axe_x: "Tranche d'âge", axe_y: "Patients",
          row: 8, col: 12, size_x: 12, size_y: 9}

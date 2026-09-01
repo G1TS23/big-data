@@ -40,24 +40,14 @@ INNER JOIN silver.dim_cim10 AS c ON c.code_cim10 = f.code_cim10
 GROUP BY c.code_cim10, c.libelle
 HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
 
--- ─── Description de cohorte : distribution par âge et sexe ─────────────────
-CREATE OR REPLACE VIEW gold_recherche.coh_age_sexe
-DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
--- Lue depuis fait_diagnostic, seule table qui porte la tranche d'âge. La
--- population est rigoureusement la même : les 14 864 séjours retenus ont tous
--- au moins un diagnostic codé, donc aucun patient ni aucun séjour n'échappe au
--- décompte. uniqExact(stay_id) et non count(), qui compterait des diagnostics.
-SELECT f.tranche_age AS tranche_age, p.sex AS sex,
-       uniqExact(f.patient_key) AS patients,
-       uniqExact(f.stay_id) AS sejours
-FROM silver.fait_diagnostic AS f
-INNER JOIN silver.dim_patient AS p ON p.patient_key = f.patient_key
-GROUP BY f.tranche_age, p.sex
-HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
-
--- ─── Le croisement qui fait vraiment mordre le seuil ───────────────────────
--- Pathologie × tranche d'âge × sexe : c'est là que les cohortes deviennent
--- petites, donc là que la suppression protège réellement quelqu'un.
+-- ─── Description de cohorte ────────────────────────────────────────────────
+-- « Distribution par âge et sexe » du sujet porte sur une COHORTE, et une
+-- cohorte est définie par un diagnostic — la ligne précédente du sujet dit
+-- « taille des cohortes par diagnostic ». Une distribution globale, sur tous
+-- les séjours confondus, ne décrirait aucune cohorte.
+--
+-- C'est aussi le croisement où les effectifs deviennent petits, donc là où le
+-- seuil de diffusion protège réellement quelqu'un.
 CREATE OR REPLACE VIEW gold_recherche.coh_pathologie_age_sexe
 DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
 SELECT c.code_cim10 AS code_cim10, c.libelle AS libelle, f.tranche_age, p.sex,

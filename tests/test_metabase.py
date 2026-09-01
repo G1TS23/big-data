@@ -50,6 +50,23 @@ class TestSpecification:
                         occupees.add((r, c))
 
 
+class TestFiltres:
+    def test_toute_carte_a_variable_a_son_filtre(self):
+        """Une variable sans filtre laisserait la carte figée sur sa valeur par
+        défaut ; un filtre sans carte s'afficherait sans rien piloter."""
+        for tableau in SPEC["tableaux"]:
+            variables = {c["variable"] for c in tableau["cartes"] if c.get("variable")}
+            filtres = {f["variable"] for f in tableau.get("filtres", [])}
+            assert variables == filtres, f"{tableau['nom']} : {variables} ≠ {filtres}"
+
+    def test_la_variable_apparait_dans_la_requete(self):
+        for _, carte in CARTES:
+            if not carte.get("variable"):
+                continue
+            sql = (SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8")
+            assert "{{" + carte["variable"] + "}}" in sql, carte["sql"]
+
+
 class TestAffichage:
     def test_axe_et_mesures_deduits(self):
         sql = (SQL_DASHBOARDS / "pilot_alertes_motif.sql").read_text(encoding="utf-8")
