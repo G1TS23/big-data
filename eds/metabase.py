@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from hashlib import md5
 from pathlib import Path
 from typing import Any
 
@@ -198,15 +197,6 @@ class Metabase:
 
     def ensure_card(self, spec: dict, database_id: int, collection_id: int) -> int:
         requete = (SQL_DASHBOARDS / spec["sql"]).read_text(encoding="utf-8")
-        native = {"query": requete}
-        if spec.get("variable"):
-            native["template-tags"] = {spec["variable"]: {
-                "id": identifiant(f"tag-{spec['variable']}"),
-                "name": spec["variable"],
-                "display-name": spec.get("variable_titre", spec["variable"].capitalize()),
-                "type": "text",
-                "default": spec.get("variable_defaut"),
-                "required": True}}
         corps = {
             "name": spec["titre"],
             # Metabase refuse une description vide : il faut l'omettre, pas
@@ -214,7 +204,8 @@ class Metabase:
             "description": spec.get("description") or None,
             "display": spec["forme"],
             "visualization_settings": spec.get("affichage", {}),
-            "dataset_query": {"type": "native", "database": database_id, "native": native},
+            "dataset_query": {"type": "native", "database": database_id,
+                              "native": {"query": requete}},
             "collection_id": collection_id,
         }
         existant = self._trouver(f"/api/collection/{collection_id}/items?models=card",
@@ -241,18 +232,19 @@ class Metabase:
             self.put(f"/api/card/{objet['id']}", {"archived": True})
         return [o["name"] for o in obsoletes]
 
-    def ensure_dashboard(self, nom: str, description: str, collection_id: int,
-                         filtres: list[dict] | None = None) -> int:
+    def ensure_dashboard(self, nom: str, description: str, collection_id: int) -> int:
+        """Crée le tableau, ou le remet en conformité avec la spécification.
+
+        Les filtres sont réécrits à chaque passage, y compris pour les effacer :
+        un filtre retiré du fichier mais laissé dans l'instance continuerait de
+        s'afficher sans rien piloter. La spécification décrit un ÉTAT, pas une
+        suite d'ajouts.
+        """
         existant = self._trouver(f"/api/collection/{collection_id}/items?models=dashboard", nom)
         dashboard_id = existant["id"] if existant else self.post(
             "/api/dashboard", {"name": nom, "description": description,
                                "collection_id": collection_id})["id"]
-        if filtres:
-            self.put(f"/api/dashboard/{dashboard_id}", {"parameters": [
-                {"id": identifiant(f"param-{f['variable']}"), "name": f["nom"],
-                 "slug": f["variable"], "type": "string/=", "sectionId": "string",
-                 "default": [f["defaut"]] if f.get("defaut") else None}
-                for f in filtres]})
+        self.put(f"/api/dashboard/{dashboard_id}", {"parameters": []})
         return dashboard_id
 
     def poser_cartes(self, dashboard_id: int, cartes: list[dict]) -> None:
@@ -274,11 +266,6 @@ def charger_specification(path: Path | None = None) -> dict:
 
 ALIAS = re.compile(r'\bAS\s+"([^"]+)"', re.IGNORECASE)
 
-
-def identifiant(graine: str) -> str:
-    """Identifiant stable, dérivé du nom : rejouer le provisionnement ne doit
-    pas créer de doublons de filtres."""
-    return md5(graine.encode("utf-8")).hexdigest()[:8]
 
 
 def colonnes(sql: str) -> list[str]:

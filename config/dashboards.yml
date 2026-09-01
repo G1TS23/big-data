@@ -94,10 +94,6 @@ tableaux:
     description: "Cohortes par pathologie, par âge et par sexe. Aucune donnée identifiante."
     connexion: "EDS — Recherche"
     collection: "Recherche clinique"
-    # Le filtre pilote la carte de description de cohorte : « distribution par
-    # âge et sexe » décrit UNE cohorte, donc un diagnostic à la fois.
-    filtres:
-      - {nom: "Pathologie", variable: pathologie, defaut: "I21"}
     cartes:
       - {texte: "### Données pseudonymisées\n\nAucun identifiant direct n'entre dans l'entrepôt. Les dates de naissance sont réduites à l'année, d'où un âge exact à ±1 an.\n\n**Les cohortes de moins de 5 patients ne sont pas diffusées.** Le seuil est appliqué dans les vues de l'entrepôt, pas à l'affichage : il ne peut pas être contourné par une requête.",
          row: 0, col: 0, size_x: 24, size_y: 4}
@@ -109,27 +105,27 @@ tableaux:
       - {sql: rech_prevalence.sql, titre: "Prévalence par pathologie", forme: row,
          description: "Nombre de patients distincts, non de diagnostics posés.",
          serie: "Patients", couleur: serie_1, valeurs: true,
-         row: 8, col: 0, size_x: 12, size_y: 9}
-      - {sql: rech_cohorte_age_sexe.sql, titre: "Description de la cohorte", forme: bar,
-         description: "Distribution par âge et par sexe des patients porteurs de la pathologie choisie. Âge atteint dans l'année de l'admission.",
-         variable: pathologie, variable_titre: "Pathologie", variable_defaut: "I21",
-         series: ["Femmes", "Hommes"], valeurs: true,
-         axe_x: "Tranche d'âge", axe_y: "Patients",
-         row: 8, col: 12, size_x: 12, size_y: 9}
-
-      - {sql: rech_pathologie_age.sql, titre: "Composition par âge de chaque cohorte", forme: row,
-         description: "Répartition des patients par tranche d'âge, pathologie par pathologie. L'âge est celui atteint dans l'année de l'admission.",
+         row: 8, col: 0, size_x: 24, size_y: 9}
+      - {sql: rech_cohorte_femmes.sql, titre: "Description des cohortes — femmes", forme: row,
+         description: "Répartition par tranche d'âge, pathologie par pathologie. Âge atteint dans l'année de l'admission.",
+         empile: true, rampe: rampe_age,
+         series: ["0-17 ans", "18-44 ans", "45-64 ans", "65-74 ans", "75-84 ans", "85 ans et plus"],
+         axe_x: "Pathologie", axe_y: "Patientes",
+         row: 17, col: 0, size_x: 12, size_y: 10}
+      - {sql: rech_cohorte_hommes.sql, titre: "Description des cohortes — hommes", forme: row,
+         description: "Même axe et même rampe qu'à gauche : les deux graphiques se comparent directement.",
          empile: true, rampe: rampe_age,
          series: ["0-17 ans", "18-44 ans", "45-64 ans", "65-74 ans", "75-84 ans", "85 ans et plus"],
          axe_x: "Pathologie", axe_y: "Patients",
-         row: 17, col: 0, size_x: 24, size_y: 9}
+         row: 17, col: 12, size_x: 12, size_y: 10}
+
       - {sql: rech_duree_pathologie.sql, titre: "Durée moyenne de séjour par pathologie", forme: row,
          description: "Sur le diagnostic principal, séjours clos.",
          serie: "Durée moyenne (jours)", couleur: serie_3, valeurs: true,
-         row: 26, col: 0, size_x: 24, size_y: 8}
+         row: 27, col: 0, size_x: 24, size_y: 8}
       - {sql: rech_comorbidites.sql, titre: "Pathologies associées", forme: table,
          description: "Couples de diagnostics posés sur un même séjour.",
-         row: 34, col: 0, size_x: 24, size_y: 8}
+         row: 35, col: 0, size_x: 24, size_y: 8}
 
   # ─── Exploitation du pipeline ─────────────────────────────────────────────
   - nom: "Exploitation du pipeline"

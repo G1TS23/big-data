@@ -50,21 +50,26 @@ class TestSpecification:
                         occupees.add((r, c))
 
 
-class TestFiltres:
-    def test_toute_carte_a_variable_a_son_filtre(self):
-        """Une variable sans filtre laisserait la carte figée sur sa valeur par
-        défaut ; un filtre sans carte s'afficherait sans rien piloter."""
-        for tableau in SPEC["tableaux"]:
-            variables = {c["variable"] for c in tableau["cartes"] if c.get("variable")}
-            filtres = {f["variable"] for f in tableau.get("filtres", [])}
-            assert variables == filtres, f"{tableau['nom']} : {variables} ≠ {filtres}"
+class TestSouverainetéDeLaSpecification:
+    """Le fichier décrit un ÉTAT, pas une suite d'ajouts : ce qu'il ne décrit
+    plus ne doit pas survivre dans l'instance."""
 
-    def test_la_variable_apparait_dans_la_requete(self):
+    def test_les_deux_facettes_partagent_axe_et_rampe(self):
+        """Deux petits multiples ne se comparent que s'ils sont réglés à
+        l'identique : mêmes séries, même ordre, même rampe."""
+        facettes = [c for _, c in CARTES if c["sql"].startswith("rech_cohorte_")]
+        assert len(facettes) == 2
+        assert facettes[0]["series"] == facettes[1]["series"]
+        assert facettes[0]["rampe"] == facettes[1]["rampe"]
+        assert facettes[0]["size_y"] == facettes[1]["size_y"]
+        assert facettes[0]["row"] == facettes[1]["row"]
+
+    def test_aucune_carte_ne_depend_d_un_filtre(self):
+        """Le mécanisme de filtre a été retiré : plus aucune requête ne doit
+        porter de variable, faute de quoi elle resterait figée."""
         for _, carte in CARTES:
-            if not carte.get("variable"):
-                continue
             sql = (SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8")
-            assert "{{" + carte["variable"] + "}}" in sql, carte["sql"]
+            assert "{{" not in sql, f"{carte['sql']} attend une variable"
 
 
 class TestAffichage:
