@@ -24,7 +24,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import access, config, db, lake, loader, metabase, transform
+from eds import access, bronze, config, lake, metabase, sql
 from eds.execution import Execution, journaliser
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,9 +43,9 @@ COLONNES_CHARGEMENT = ["run_id", "source", "deposit_date", "target_table", "lake
 # ─── Création du socle ──────────────────────────────────────────────────────
 
 def cmd_init(settings, args, log) -> int:
-    client = db.connect(settings)
+    client = sql.connect(settings)
     for script in SCRIPTS_INIT:
-        nb = db.execute_script(client, SQL_DIR / script)
+        nb = sql.execute_script(client, SQL_DIR / script)
         log.info("script exécuté", extra={"fichier": script, "instructions": nb})
     tables = client.query("SELECT database, name FROM system.tables "
                           "WHERE database IN ('ops', 'bronze') ORDER BY database, name")
@@ -76,7 +76,7 @@ def cmd_lake(settings, args, log) -> int:
                                "fichiers": ", ".join(r.name for r in residus[:5])})
 
         # Une seule requête pour toute l'exécution, et non une par dépôt.
-        deja = set() if args.force else db.depots_deja_ingeres(
+        deja = set() if args.force else sql.depots_deja_ingeres(
             run.client, [d.deposit_date for d in depots])
 
         for depot in depots:
@@ -136,8 +136,9 @@ def cmd_bronze(settings, args, log) -> int:
         log.info("dépôts à charger", extra={"run_id": run.run_id, "nb": len(depots)})
 
         for source, jour, chemin in depots:
-            bronze = cibles.get(source)
-            if bronze is None:
+            # `cible` et non `bronze` : le module porte déjà ce nom.
+            cible = cibles.get(source)
+            if cible is None:
                 run.incidents.append(f"{source} : aucune cible bronze déclarée")
                 log.warning("aucune cible bronze déclarée", extra={"source": source})
                 continue
@@ -145,8 +146,8 @@ def cmd_bronze(settings, args, log) -> int:
             with run.etape(f"{source}/{jour}"):
                 try:
                     # Rejeu : la partition du jour est effacée avant réinsertion.
-                    loader.drop_partition(run.client, bronze["table"], jour)
-                    resultat = loader.load_file(settings, bronze, Path(chemin), jour, run.run_id)
+                    bronze.drop_partition(run.client, cible["table"], jour)
+                    resultat = bronze.load_file(settings, cible, Path(chemin), jour, run.run_id)
                     run.traites += 1
                     log.info("chargé", extra={"source": source, "date": jour,
                              "table": resultat.table, "lignes": resultat.rows_loaded,
@@ -157,7 +158,7 @@ def cmd_bronze(settings, args, log) -> int:
                         resultat.duration_ms, "OK", "", datetime.now()])
                 except Exception as exc:
                     run.journaliser("ops.load_log", COLONNES_CHARGEMENT, [
-                        run.run_id, source, date.fromisoformat(jour), bronze["table"],
+                        run.run_id, source, date.fromisoformat(jour), cible["table"],
                         chemin, 0, 0, 0, "FAILED", str(exc)[:1000], datetime.now()])
                     raise                          # run.etape enregistre l'incident
     return run.code_retour
@@ -167,11 +168,11 @@ def cmd_bronze(settings, args, log) -> int:
 
 def _executer_scripts(run, settings, scripts, log, substitutions=None):
     """Joue des scripts SQL avec les règles métier, et consigne lesquelles."""
-    regles = transform.load_regles()
-    parametres = transform.to_parameters(regles)
-    transform.snapshot_parametres(run.client, run.run_id, parametres)
+    regles = sql.load_regles()
+    parametres = sql.to_parameters(regles)
+    sql.snapshot_parametres(run.client, run.run_id, parametres)
     for script in scripts:
-        nb = transform.run_script(run.client, SQL_DIR / script, run.run_id,
+        nb = sql.run_script(run.client, SQL_DIR / script, run.run_id,
                                   parametres, substitutions)
         run.traites += nb
         log.info("script exécuté", extra={"fichier": script, "instructions": nb})
@@ -202,10 +203,10 @@ def cmd_silver(settings, args, log) -> int:
 def cmd_gold(settings, args, log) -> int:
     """Reconstruit les deux couches gold, cloisonnées par usage."""
     with Execution(settings, "gold", "instruction", log) as run:
-        regles = transform.load_regles()
+        regles = sql.load_regles()
         # Le seuil et le définisseur sont SCELLÉS dans les vues de recherche :
         # ni l'un ni l'autre ne doit pouvoir être fourni par l'appelant.
-        substitutions = {"K_ANONYMITE": transform.to_parameters(regles)["k"],
+        substitutions = {"K_ANONYMITE": sql.to_parameters(regles)["k"],
                          "DEFINER": settings.ch_user}
         _executer_scripts(run, settings,
                           ["30_gold_pilotage.sql", "31_gold_recherche.sql"],
@@ -294,7 +295,7 @@ def cmd_metabase(settings, args, log) -> int:
 
 def cmd_acces(settings, args, log) -> int:
     """Crée les comptes cloisonnés puis éprouve le cloisonnement, aux deux niveaux."""
-    client = db.connect(settings)
+    client = sql.connect(settings)
     log.info("comptes de restitution",
              extra={"comptes": ", ".join(access.ensure_users(client, settings))})
 
@@ -337,7 +338,7 @@ def _tableau_constats(constats, titre_compte: str, titre_objet: str, cle: str) -
 
 
 def cmd_status(settings, args, log) -> int:
-    client = db.connect(settings)
+    client = sql.connect(settings)
 
     print("\nDerniers runs")
     print(_table(client, """

@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import db
+from eds import sql
 from eds.config import Settings
 
 _RESERVE = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
@@ -95,7 +95,7 @@ class Execution:
 
     # ── cycle de vie ────────────────────────────────────────────────────────
     def __enter__(self) -> Execution:
-        self.client = db.connect(self.settings)
+        self.client = sql.connect(self.settings)
         self.debut = datetime.now()
         self._ecrire_journal("RUNNING", "")
         return self

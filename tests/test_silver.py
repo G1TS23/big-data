@@ -5,7 +5,7 @@ les chiffres produits exigent le moteur, et sont ignorés s'il n'est pas là.
 """
 import pytest
 
-from eds.transform import load_regles, to_parameters
+from eds.sql import load_regles, to_parameters
 
 
 class TestReglesMetier:
@@ -40,12 +40,12 @@ class TestReglesMetier:
 
 @pytest.fixture(scope="module")
 def ch():
-    from eds import db
+    from eds import sql
     from eds.config import load_settings
     try:
         # Délai court : sans le socle, on veut savoir tout de suite qu'on
         # saute, pas attendre les reconnexions du pilote.
-        client = db.connect(load_settings(), connect_timeout=2, send_receive_timeout=5)
+        client = sql.connect(load_settings(), connect_timeout=2, send_receive_timeout=5)
         client.command("SELECT 1")
     except Exception as exc:
         pytest.skip(f"ClickHouse indisponible : {exc}")

@@ -8,7 +8,7 @@ import pytest
 
 from eds.access import COMPTES, INTERDITS, _peut_lire
 from eds.config import load_settings
-from eds.transform import load_regles
+from eds.sql import load_regles
 
 
 @pytest.fixture(scope="module")
@@ -18,9 +18,9 @@ def settings():
 
 @pytest.fixture(scope="module")
 def ch(settings):
-    from eds import db
+    from eds import sql
     try:
-        client = db.connect(settings, connect_timeout=2, send_receive_timeout=5)
+        client = sql.connect(settings, connect_timeout=2, send_receive_timeout=5)
         client.command("SELECT 1")
     except Exception as exc:
         pytest.skip(f"ClickHouse indisponible : {exc}")

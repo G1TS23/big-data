@@ -14,7 +14,7 @@ from hashlib import sha256
 
 import clickhouse_connect
 
-from eds import db
+from eds import sql
 from eds.config import Settings
 
 log = logging.getLogger("eds.access")
@@ -95,7 +95,7 @@ def verifier(settings: Settings) -> list[dict]:
 
 
 def _premier_objet(settings: Settings, base: str) -> str:
-    client = db.connect(settings)
+    client = sql.connect(settings)
     rows = client.query(
         "SELECT name FROM system.tables WHERE database = {d:String} ORDER BY name LIMIT 1",
         parameters={"d": base}).result_rows

@@ -98,7 +98,9 @@ différents des nôtres. C'est le comportement attendu — voir `docs/EXPLOITATI
 ```
 sql/         DDL et transformations bronze → silver → gold
 config/      flux sources et règles métier (seuils, bornes, fenêtres)
-eds/         orchestrateur Python (CLI, ingestion, pseudonymisation, planification)
+eds/         orchestrateur — un module par étape du pipeline :
+               config · execution · pseudonymize · lake · bronze · sql
+               access · metabase · cli
 tests/       tests des règles métier et de la pseudonymisation
 docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2) · captures
 sql/dashboards/  requêtes des cartes, versionnées

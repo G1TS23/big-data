@@ -6,7 +6,7 @@ construit la bonne requête. Le moteur, lui, est vérifié par l'exécution rée
 import pytest
 
 from eds.config import load_sources
-from eds.loader import build_insert, split_columns
+from eds.bronze import build_insert, split_columns
 
 
 class TestDecoupageDuSchema:
