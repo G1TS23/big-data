@@ -175,6 +175,28 @@ class TestReprisApresInterruption:
         assert lake.nettoyer_residus(tmp_path) == []
         assert resultat.lake_path.is_file()
 
+    def test_un_depot_journalise_mais_absent_n_est_pas_considere_publie(self, tmp_path):
+        """Le journal dit ce qui a été ingéré, pas ce qui est encore là. Un lake
+        purgé ou un volume démonté ferait échouer l'étape suivante sans rien
+        expliquer si l'on se fiait au seul journal."""
+        depot = _deposit("monitoring", "2026-01-01")
+        assert not lake.est_publie(depot, tmp_path)
+
+        resultat = ingest(depot, tmp_path, SALT)
+        assert lake.est_publie(depot, tmp_path)
+
+        resultat.lake_path.unlink()
+        assert not lake.est_publie(depot, tmp_path)
+
+    def test_un_residu_ne_compte_pas_comme_publie(self, tmp_path, monkeypatch):
+        """Un « .partiel » n'est pas une publication."""
+        depot = _deposit("monitoring", "2026-01-01")
+        monkeypatch.setattr(lake, "_publier",
+                            lambda *a: (_ for _ in ()).throw(KeyboardInterrupt("tué")))
+        with pytest.raises(KeyboardInterrupt):
+            ingest(depot, tmp_path, SALT)
+        assert not lake.est_publie(depot, tmp_path)
+
     def test_le_nettoyage_supporte_un_lake_inexistant(self, tmp_path):
         assert lake.nettoyer_residus(tmp_path / "jamais_cree") == []
 

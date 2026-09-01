@@ -104,6 +104,16 @@ def _lake_target(lake_root: Path, dep: Deposit) -> Path:
     return lake_root / flow / f"ingestion_date={dep.deposit_date}" / dep.src_path.name
 
 
+def est_publie(dep: Deposit, lake_root: Path) -> bool:
+    """Le fichier attendu est-il réellement présent dans le lake ?
+
+    Le journal dit ce qui a été ingéré ; il ne garantit pas que la copie soit
+    encore là. Un lake purgé, un volume démonté, et l'étape suivante échouerait
+    en cherchant un fichier absent. Une vérification d'existence, sans lecture.
+    """
+    return _lake_target(lake_root, dep).is_file()
+
+
 def _quarantine(lake_root: Path, dep: Deposit, reason: str) -> IngestResult:
     target = lake_root / "_quarantaine" / dep.source.replace("/", "_") / dep.deposit_date
     target.mkdir(parents=True, exist_ok=True)

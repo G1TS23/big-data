@@ -1,412 +1,229 @@
 """Point d'entrée en ligne de commande de l'orchestrateur.
 
-    eds init                    crée la couche d'exploitation (ops.*)
-    eds lake                    recopie dans le lake tous les dépôts non traités
+    eds init                    crée la traçabilité, puis les tables
+    eds lake                    recopie dans le lake les dépôts non traités
     eds lake --date 2026-08-27  rejoue une journée précise (idempotent)
     eds bronze                  charge le lake dans les tables typées
     eds silver                  reconstruit le modèle métier, en SQL
     eds gold                    reconstruit les indicateurs, cloisonnés
     eds acces                   crée les comptes et éprouve le cloisonnement
     eds metabase                provisionne les tableaux de bord
-    eds status                  état des ingestions et des derniers runs
+    eds status                  état des dépôts et des dernières exécutions
 
-Chaque exécution porte un identifiant (run_id) inscrit sur toutes les lignes
-qu'elle produit : c'est le fil qui relie un chiffre de tableau de bord au
-fichier source dont il provient.
+Chaque exécution porte un identifiant inscrit sur toutes les lignes qu'elle
+produit : c'est le fil qui relie un chiffre de tableau de bord au fichier
+source dont il provient. Le cycle de vie de cet identifiant — ouverture,
+compteurs, clôture même en cas d'incident — vit dans eds/execution.py, ce qui
+laisse ici la seule logique de chaque commande.
 """
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
-import uuid
+import time
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import access, config, db, lake, loader, logging_setup, metabase, transform
+from eds import access, config, db, lake, loader, metabase, transform
+from eds.execution import Execution, journaliser
 
 ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
 
+# Joués dans cet ordre : la traçabilité existe avant la donnée.
+SCRIPTS_INIT = ["40_ops.sql", "10_bronze.sql", "50_acces.sql"]
 
-_COLONNES_RUN = ["run_id", "command", "started_at", "finished_at", "status",
-                 "unite", "objets_vus", "objets_traites", "objets_ignores",
-                 "objets_quarantaine", "message", "updated_at"]
-
-
-def _open_run(client, run_id: str, command: str, unite: str) -> datetime:
-    """Ouvre une exécution. `unite` dit ce que ses compteurs dénombreront."""
-    started = datetime.now()
-    client.insert("ops.run_log",
-                  [[run_id, command, started, None, "RUNNING", unite,
-                    0, 0, 0, 0, "", datetime.now()]],
-                  column_names=_COLONNES_RUN)
-    return started
+COLONNES_INGESTION = ["run_id", "source", "deposit_date", "src_path", "lake_path",
+                      "rows_in", "rows_out", "bytes_in", "status", "reason", "ingested_at"]
+COLONNES_CHARGEMENT = ["run_id", "source", "deposit_date", "target_table", "lake_path",
+                       "rows_loaded", "bytes_read", "duration_ms", "status", "message",
+                       "loaded_at"]
 
 
-def _close_run(client, run_id, command, started, status, unite, counts, message=""):
-    client.insert("ops.run_log",
-                  [[run_id, command, started, datetime.now(), status, unite,
-                    counts.get("vus", 0), counts.get("traites", 0),
-                    counts.get("ignores", 0), counts.get("quarantaine", 0),
-                    message[:2000], datetime.now()]],
-                  column_names=_COLONNES_RUN)
-
-
-# Les scripts sont joués dans cet ordre : la traçabilité existe avant la donnée.
-INIT_SCRIPTS = ["40_ops.sql", "10_bronze.sql", "50_acces.sql"]
-
+# ─── Création du socle ──────────────────────────────────────────────────────
 
 def cmd_init(settings, args, log) -> int:
     client = db.connect(settings)
-    for script in INIT_SCRIPTS:
-        count = db.execute_script(client, SQL_DIR / script)
-        log.info("script exécuté", extra={"fichier": script, "instructions": count})
-    tables = client.query(
-        "SELECT database, name FROM system.tables "
-        "WHERE database IN ('ops', 'bronze') ORDER BY database, name")
-    for database, name in tables.result_rows:
-        log.info("table prête", extra={"table": f"{database}.{name}"})
+    for script in SCRIPTS_INIT:
+        nb = db.execute_script(client, SQL_DIR / script)
+        log.info("script exécuté", extra={"fichier": script, "instructions": nb})
+    tables = client.query("SELECT database, name FROM system.tables "
+                          "WHERE database IN ('ops', 'bronze') ORDER BY database, name")
+    for base, nom in tables.result_rows:
+        log.info("table prête", extra={"table": f"{base}.{nom}"})
     return 0
 
 
+# ─── Ingestion ──────────────────────────────────────────────────────────────
+
 def cmd_lake(settings, args, log) -> int:
-    client = db.connect(settings)
-    run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "lake", "dépôt")
-
-    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
-    rows: list[list] = []
-    failures: list[str] = []
-    status = "FAILED"
-
-    try:
-        sources = config.load_sources()
-        deposits = lake.discover(settings.source_path, sources)
+    """Recopie les dépôts du CHU dans le lake, pseudonymisés à la porte."""
+    with Execution(settings, "lake", "dépôt", log) as run:
+        depots = lake.discover(settings.source_path, config.load_sources())
         if args.date:
-            deposits = [d for d in deposits if d.deposit_date == args.date]
+            depots = [d for d in depots if d.deposit_date == args.date]
         if args.source:
-            deposits = [d for d in deposits if d.source.split("/", 1)[0] == args.source]
-
-        counts["vus"] = len(deposits)
-        log.info("dépôts à examiner", extra={"run_id": run_id, "nb": len(deposits)})
+            depots = [d for d in depots if d.source.split("/", 1)[0] == args.source]
+        run.vus = len(depots)
+        log.info("dépôts à examiner", extra={"run_id": run.run_id, "nb": len(depots)})
 
         # Reprise : une exécution interrompue laisse des écritures inachevées.
-        # Elles sont effacées avant de recommencer — la source étant immuable,
-        # il suffit de les réécrire.
+        # La source étant immuable, il suffit de les effacer et de recommencer.
         residus = lake.nettoyer_residus(settings.lake_path)
         if residus:
             log.warning("écritures inachevées effacées",
                         extra={"nb": len(residus),
                                "fichiers": ", ".join(r.name for r in residus[:5])})
 
-        # Une seule requête pour toute l'exécution.
+        # Une seule requête pour toute l'exécution, et non une par dépôt.
         deja = set() if args.force else db.depots_deja_ingeres(
-            client, [d.deposit_date for d in deposits])
+            run.client, [d.deposit_date for d in depots])
 
-        for dep in deposits:
-            try:
-                if (dep.source, dep.deposit_date) in deja:
-                    counts["ignores"] += 1
+        for depot in depots:
+            with run.etape(f"{depot.source}/{depot.deposit_date}"):
+                # Ignorer suppose que le fichier est TOUJOURS dans le lake. Un
+                # journal qui affirme « ingéré » alors que la copie a disparu
+                # ferait échouer l'étape suivante sans rien expliquer.
+                if (depot.source, depot.deposit_date) in deja and lake.est_publie(
+                        depot, settings.lake_path):
+                    run.ignores += 1
                     log.info("déjà ingéré, ignoré",
-                             extra={"source": dep.source, "date": dep.deposit_date})
+                             extra={"source": depot.source, "date": depot.deposit_date})
                     continue
 
-                result = lake.ingest(dep, settings.lake_path, settings.salt)
-
-                if result.status == "QUARANTINE":
-                    counts["quarantaine"] += 1
-                    log.warning("mis en quarantaine", extra={"source": dep.source,
-                                "date": dep.deposit_date, "motif": result.reason})
+                resultat = lake.ingest(depot, settings.lake_path, settings.salt)
+                if resultat.status == "QUARANTINE":
+                    run.quarantaine += 1
+                    log.warning("mis en quarantaine",
+                                extra={"source": depot.source, "date": depot.deposit_date,
+                                       "motif": resultat.reason})
                 else:
-                    counts["traites"] += 1
-                    log.info("ingéré", extra={"source": dep.source, "date": dep.deposit_date,
-                             "lignes": result.rows_out or "-", "octets": result.bytes_in})
+                    run.traites += 1
+                    log.info("ingéré", extra={"source": depot.source,
+                             "date": depot.deposit_date,
+                             "lignes": resultat.rows_out or "-", "octets": resultat.bytes_in})
 
-                rows.append([
-                    run_id, dep.source, date.fromisoformat(dep.deposit_date),
-                    str(dep.src_path), str(result.lake_path or ""),
-                    result.rows_in, result.rows_out, result.bytes_in,
-                    result.status, result.reason, result.ingested_at,
-                ])
-            except Exception as exc:              # noqa: BLE001 — un flux ne doit pas tuer le run
-                failures.append(f"{dep.source}/{dep.deposit_date}: {exc}")
-                log.error("échec du dépôt", exc_info=True,
-                          extra={"source": dep.source, "date": dep.deposit_date})
-
-        status = ("FAILED" if failures and not counts["traites"]
-                  else "PARTIAL" if failures or counts["quarantaine"]
-                  else "OK")
-        return 1 if status == "FAILED" else 0
-
-    except Exception as exc:                      # noqa: BLE001
-        failures.append(f"erreur fatale : {exc}")
-        raise
-
-    finally:
-        # Le run est clôturé quoi qu'il arrive : un incident ne doit jamais
-        # laisser une exécution éternellement « RUNNING » dans le journal.
-        try:
-            if rows:
-                client.insert("ops.ingestion_log", rows, column_names=[
-                    "run_id", "source", "deposit_date", "src_path", "lake_path",
-                    "rows_in", "rows_out", "bytes_in",
-                    "status", "reason", "ingested_at"])
-        except Exception:                         # noqa: BLE001
-            log.error("journal d'ingestion non écrit", exc_info=True, extra={"run_id": run_id})
-            failures.append("journal d'ingestion non écrit")
-            status = "FAILED"
-        try:
-            _close_run(client, run_id, "lake", started, status, "dépôt", counts, " | ".join(failures))
-        except Exception:                         # noqa: BLE001
-            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
-        log.info("run terminé", extra={"run_id": run_id, "statut": status, **counts})
+                run.journaliser("ops.ingestion_log", COLONNES_INGESTION, [
+                    run.run_id, depot.source, date.fromisoformat(depot.deposit_date),
+                    str(depot.src_path), str(resultat.lake_path or ""),
+                    resultat.rows_in, resultat.rows_out, resultat.bytes_in,
+                    resultat.status, resultat.reason, resultat.ingested_at])
+    return run.code_retour
 
 
 def cmd_bronze(settings, args, log) -> int:
-    """Charge dans bronze les dépôts présents dans le lake."""
-    client = db.connect(settings)
-    run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "bronze", "dépôt")
+    """Charge dans bronze les dépôts que le lake contient réellement."""
+    with Execution(settings, "bronze", "dépôt", log) as run:
+        cibles = {spec["_name"]: spec["bronze"]
+                  for nom, source in config.load_sources().items()
+                  for spec in lake._file_specs(nom, source) if "bronze" in spec}
 
-    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
-    rows: list[list] = []
-    failures: list[str] = []
-    status = "FAILED"
-
-    try:
-        sources = config.load_sources()
-        specs = {}
-        for name, spec in sources.items():
-            for file_spec in lake._file_specs(name, spec):
-                if "bronze" in file_spec:
-                    specs[file_spec["_name"]] = file_spec["bronze"]
-
-        # On ne charge que ce que le lake contient réellement : la liste des
-        # dépôts vient du journal d'ingestion, pas d'un parcours de répertoire.
-        query = ("SELECT source, toString(deposit_date), argMax(lake_path, ingested_at) "
-                 "FROM ops.ingestion_log WHERE status = 'OK' ")
+        # La liste vient du journal d'ingestion, pas d'un parcours de répertoire :
+        # on ne charge que ce qui a été effectivement publié dans le lake.
+        requete = ("SELECT source, toString(deposit_date), argMax(lake_path, ingested_at) "
+                   "FROM ops.ingestion_log WHERE status = 'OK' ")
         params = {}
         if args.date:
-            query += "AND deposit_date = {d:Date} "
+            requete += "AND deposit_date = {d:Date} "
             params["d"] = args.date
         if args.source:
-            query += "AND splitByChar('/', source)[1] = {s:String} "
+            requete += "AND splitByChar('/', source)[1] = {s:String} "
             params["s"] = args.source
-        query += "GROUP BY source, deposit_date ORDER BY deposit_date, source"
+        requete += "GROUP BY source, deposit_date ORDER BY deposit_date, source"
 
-        deposits = client.query(query, parameters=params).result_rows
-        counts["vus"] = len(deposits)
-        log.info("dépôts à charger", extra={"run_id": run_id, "nb": len(deposits)})
+        depots = run.client.query(requete, parameters=params).result_rows
+        run.vus = len(depots)
+        log.info("dépôts à charger", extra={"run_id": run.run_id, "nb": len(depots)})
 
-        for source, deposit_date, lake_path in deposits:
-            bronze = specs.get(source)
+        for source, jour, chemin in depots:
+            bronze = cibles.get(source)
             if bronze is None:
-                counts["ignores"] += 1
+                run.incidents.append(f"{source} : aucune cible bronze déclarée")
                 log.warning("aucune cible bronze déclarée", extra={"source": source})
                 continue
-            try:
-                # Rejeu : la partition du jour est effacée avant réinsertion.
-                loader.drop_partition(client, bronze["table"], deposit_date)
-                result = loader.load_file(settings, bronze, Path(lake_path),
-                                          deposit_date, run_id)
-                counts["traites"] += 1
-                log.info("chargé", extra={"source": source, "date": deposit_date,
-                         "table": result.table, "lignes": result.rows_loaded,
-                         "ms": result.duration_ms})
-                rows.append([run_id, source, date.fromisoformat(deposit_date),
-                             result.table, lake_path, result.rows_loaded,
-                             result.bytes_read, result.duration_ms, "OK", "",
-                             datetime.now()])
-            except Exception as exc:              # noqa: BLE001 — un flux ne doit pas tuer le run
-                failures.append(f"{source}/{deposit_date}: {exc}")
-                log.error("échec du chargement", exc_info=True,
-                          extra={"source": source, "date": deposit_date})
-                rows.append([run_id, source, date.fromisoformat(deposit_date),
-                             bronze["table"], lake_path, 0, 0, 0, "FAILED",
-                             str(exc)[:1000], datetime.now()])
 
-        status = ("FAILED" if failures and not counts["traites"]
-                  else "PARTIAL" if failures or counts["ignores"]
-                  else "OK")
-        return 1 if status == "FAILED" else 0
+            with run.etape(f"{source}/{jour}"):
+                try:
+                    # Rejeu : la partition du jour est effacée avant réinsertion.
+                    loader.drop_partition(run.client, bronze["table"], jour)
+                    resultat = loader.load_file(settings, bronze, Path(chemin), jour, run.run_id)
+                    run.traites += 1
+                    log.info("chargé", extra={"source": source, "date": jour,
+                             "table": resultat.table, "lignes": resultat.rows_loaded,
+                             "ms": resultat.duration_ms})
+                    run.journaliser("ops.load_log", COLONNES_CHARGEMENT, [
+                        run.run_id, source, date.fromisoformat(jour), resultat.table,
+                        chemin, resultat.rows_loaded, resultat.bytes_read,
+                        resultat.duration_ms, "OK", "", datetime.now()])
+                except Exception as exc:
+                    run.journaliser("ops.load_log", COLONNES_CHARGEMENT, [
+                        run.run_id, source, date.fromisoformat(jour), bronze["table"],
+                        chemin, 0, 0, 0, "FAILED", str(exc)[:1000], datetime.now()])
+                    raise                          # run.etape enregistre l'incident
+    return run.code_retour
 
-    except Exception as exc:                      # noqa: BLE001
-        failures.append(f"erreur fatale : {exc}")
-        raise
 
-    finally:
-        try:
-            if rows:
-                client.insert("ops.load_log", rows, column_names=[
-                    "run_id", "source", "deposit_date", "target_table", "lake_path",
-                    "rows_loaded", "bytes_read", "duration_ms", "status", "message",
-                    "loaded_at"])
-        except Exception:                         # noqa: BLE001
-            log.error("journal de chargement non écrit", exc_info=True,
-                      extra={"run_id": run_id})
-        try:
-            _close_run(client, run_id, "bronze", started, status, "dépôt", counts,
-                       " | ".join(failures))
-        except Exception:                         # noqa: BLE001
-            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
-        log.info("run terminé", extra={"run_id": run_id, "statut": status, **counts})
+# ─── Transformations ────────────────────────────────────────────────────────
+
+def _executer_scripts(run, settings, scripts, log, substitutions=None):
+    """Joue des scripts SQL avec les règles métier, et consigne lesquelles."""
+    regles = transform.load_regles()
+    parametres = transform.to_parameters(regles)
+    transform.snapshot_parametres(run.client, run.run_id, parametres)
+    for script in scripts:
+        nb = transform.run_script(run.client, SQL_DIR / script, run.run_id,
+                                  parametres, substitutions)
+        run.traites += nb
+        log.info("script exécuté", extra={"fichier": script, "instructions": nb})
+    run.vus = run.traites
+    return parametres
 
 
 def cmd_silver(settings, args, log) -> int:
     """Reconstruit la couche silver depuis bronze, en SQL."""
-    client = db.connect(settings)
-    run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "silver", "instruction")
-    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
-    status, message = "FAILED", ""
+    with Execution(settings, "silver", "instruction", log) as run:
+        parametres = _executer_scripts(run, settings, ["20_silver.sql"], log)
+        log.info("règles appliquées", extra={"run_id": run.run_id, **parametres})
 
-    try:
-        regles = transform.load_regles()
-        parameters = transform.to_parameters(regles)
-        transform.snapshot_parametres(client, run_id, parameters)
-        log.info("règles appliquées", extra={"run_id": run_id, **parameters})
+        for nom, lignes in run.client.query(
+                "SELECT name, total_rows FROM system.tables "
+                "WHERE database = 'silver' ORDER BY name").result_rows:
+            log.info("table construite", extra={"table": f"silver.{nom}", "lignes": lignes})
 
-        n = transform.run_script(client, SQL_DIR / "20_silver.sql", run_id, parameters)
-        counts["traites"] = n
-        counts["vus"] = n
-
-        tables = client.query(
-            "SELECT name, total_rows FROM system.tables "
-            "WHERE database = 'silver' ORDER BY name").result_rows
-        for name, rows in tables:
-            log.info("table construite", extra={"table": f"silver.{name}", "lignes": rows})
-
-        rejets = client.query(
-            "SELECT table_source, regle, count() FROM ops.rejects "
-            "WHERE run_id = {r:String} GROUP BY table_source, regle "
-            "ORDER BY table_source, regle", parameters={"r": run_id}).result_rows
-        for table_source, regle, n_rejets in rejets:
-            log.warning("lignes écartées", extra={"table": table_source,
-                        "regle": regle, "lignes": n_rejets})
-
-        status = "OK"
-        return 0
-
-    except Exception as exc:                      # noqa: BLE001
-        message = str(exc)
-        raise
-
-    finally:
-        try:
-            _close_run(client, run_id, "silver", started, status, "instruction", counts, message)
-        except Exception:                         # noqa: BLE001
-            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
-        log.info("run terminé", extra={"run_id": run_id, "statut": status})
+        for table, regle, nb in run.client.query(
+                "SELECT table_source, regle, count() FROM ops.rejects "
+                "WHERE run_id = {r:String} GROUP BY table_source, regle "
+                "ORDER BY table_source, regle", parameters={"r": run.run_id}).result_rows:
+            log.warning("lignes écartées",
+                        extra={"table": table, "regle": regle, "lignes": nb})
+    return run.code_retour
 
 
 def cmd_gold(settings, args, log) -> int:
     """Reconstruit les deux couches gold, cloisonnées par usage."""
-    client = db.connect(settings)
-    run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "gold", "instruction")
-    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
-    status, message = "FAILED", ""
-
-    try:
+    with Execution(settings, "gold", "instruction", log) as run:
         regles = transform.load_regles()
-        parameters = transform.to_parameters(regles)
-        transform.snapshot_parametres(client, run_id, parameters)
-
         # Le seuil et le définisseur sont SCELLÉS dans les vues de recherche :
         # ni l'un ni l'autre ne doit pouvoir être fourni par l'appelant.
-        substitutions = {"K_ANONYMITE": parameters["k"], "DEFINER": settings.ch_user}
-
-        for script in ("30_gold_pilotage.sql", "31_gold_recherche.sql"):
-            n = transform.run_script(client, SQL_DIR / script, run_id,
-                                     parameters, substitutions)
-            counts["traites"] += n
-            log.info("script exécuté", extra={"fichier": script, "instructions": n})
+        substitutions = {"K_ANONYMITE": transform.to_parameters(regles)["k"],
+                         "DEFINER": settings.ch_user}
+        _executer_scripts(run, settings,
+                          ["30_gold_pilotage.sql", "31_gold_recherche.sql"],
+                          log, substitutions)
 
         for base in ("gold_pilotage", "gold_recherche"):
-            objets = client.query(
-                "SELECT name, engine FROM system.tables WHERE database = {d:String} "
-                "ORDER BY name", parameters={"d": base}).result_rows
-            for name, engine in objets:
-                log.info("objet gold", extra={"objet": f"{base}.{name}", "type": engine})
-
-        counts["vus"] = counts["traites"]
-        status = "OK"
-        return 0
-
-    except Exception as exc:                      # noqa: BLE001
-        message = str(exc)
-        raise
-    finally:
-        try:
-            _close_run(client, run_id, "gold", started, status, "instruction", counts, message)
-        except Exception:                         # noqa: BLE001
-            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
-        log.info("run terminé", extra={"run_id": run_id, "statut": status})
+            for nom, moteur in run.client.query(
+                    "SELECT name, engine FROM system.tables WHERE database = {d:String} "
+                    "ORDER BY name", parameters={"d": base}).result_rows:
+                log.info("objet gold", extra={"objet": f"{base}.{nom}", "type": moteur})
+    return run.code_retour
 
 
-def cmd_acces(settings, args, log) -> int:
-    """Crée les comptes cloisonnés puis éprouve le cloisonnement."""
-    client = db.connect(settings)
-    comptes = access.ensure_users(client, settings)
-    log.info("comptes de restitution", extra={"comptes": ", ".join(comptes)})
-
-    constats = access.verifier(settings)
-    largeur = max(len(c["objet"]) for c in constats)
-    print()
-    print(f"  {'COMPTE':<14} {'OBJET':<{largeur}}  {'ATTENDU':<9} {'OBTENU':<9} ")
-    for c in constats:
-        marque = "ok " if c["conforme"] else "ÉCHEC"
-        print(f"  {c['compte']:<14} {c['objet']:<{largeur}}  "
-              f"{c['attendu']:<9} {c['obtenu']:<9} {marque}")
-
-    manquements = [c for c in constats if not c["conforme"]]
-
-    # Second niveau : l'interface de restitution ne doit pas contourner le moteur.
-    try:
-        restitution = metabase.verifier_cloisonnement(settings)
-    except Exception as exc:                      # noqa: BLE001
-        log.warning("cloisonnement Metabase non vérifié",
-                    extra={"motif": str(exc)[:120]})
-        restitution = []
-
-    if restitution:
-        largeur = max(len(c["action"]) for c in restitution)
-        print()
-        print(f"  {'COMPTE METABASE':<24} {'ACTION':<{largeur}}  {'ATTENDU':<9} {'OBTENU':<9}")
-        for c in restitution:
-            print(f"  {c['compte']:<24} {c['action']:<{largeur}}  "
-                  f"{c['attendu']:<9} {c['obtenu']:<9} {'ok ' if c['conforme'] else 'ÉCHEC'}")
-        # Une base injoignable n'est pas un défaut de cloisonnement : on le dit,
-        # sans transformer une panne en alerte de conformité.
-        indisponibles = [c for c in restitution if c.get("indisponible")]
-        if indisponibles:
-            log.warning("source de données injoignable — cloisonnement de la "
-                        "restitution non concluant",
-                        extra={"controles": len(indisponibles)})
-        manquements += [c for c in restitution
-                        if not c["conforme"] and not c.get("indisponible")]
-
-    print()
-    if manquements:
-        log.error("cloisonnement non conforme", extra={"manquements": len(manquements)})
-        return 1
-    log.info("cloisonnement vérifié",
-             extra={"moteur": len(constats), "restitution": len(restitution)})
-    return 0
-
+# ─── Restitution ────────────────────────────────────────────────────────────
 
 def cmd_metabase(settings, args, log) -> int:
     """Provisionne la restitution : connexions, cloisonnement, tableaux de bord."""
-    import time
-
-    client = db.connect(settings)
-    run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "metabase", "carte")
-    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
-    status, message = "FAILED", ""
-
-    try:
+    with Execution(settings, "metabase", "carte", log) as run:
         spec = metabase.charger_specification()
         mb = metabase.Metabase(settings)
         mb.connect()
@@ -432,59 +249,91 @@ def cmd_metabase(settings, args, log) -> int:
         collections = {}
         for tableau in spec["tableaux"]:
             collection_id = mb.ensure_collection(tableau["collection"], tableau["description"])
+            collections[tableau["collection"]] = collection_id
             database_id = bases[tableau["connexion"]]
+
             posees = []
             for carte in tableau["cartes"]:
                 if "texte" in carte:
                     posees.append(metabase.carte_texte(carte))
                     continue
-                sql = (metabase.SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8")
-                carte_complete = {**carte,
-                                  "affichage": metabase.affichage(carte, sql, spec["couleurs"])}
-                card_id = mb.ensure_card(carte_complete, database_id, collection_id)
-                posees.append({"card_id": card_id, "row": carte["row"], "col": carte["col"],
+                requete = (metabase.SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8")
+                complete = {**carte,
+                            "affichage": metabase.affichage(carte, requete, spec["couleurs"])}
+                posees.append({"card_id": mb.ensure_card(complete, database_id, collection_id),
+                               "row": carte["row"], "col": carte["col"],
                                "size_x": carte["size_x"], "size_y": carte["size_y"],
                                "series": [], "parameter_mappings": [],
                                "visualization_settings": {}})
-                counts["traites"] += 1
+                run.traites += 1
 
             dashboard_id = mb.ensure_dashboard(tableau["nom"], tableau["description"],
                                                collection_id)
             mb.poser_cartes(dashboard_id, posees)
-            collections[tableau["collection"]] = collection_id
-            log.info("tableau de bord", extra={"nom": tableau["nom"],
-                     "cartes": len(posees), "url": f"{settings.metabase_url}/dashboard/{dashboard_id}"})
+            log.info("tableau de bord", extra={"nom": tableau["nom"], "cartes": len(posees),
+                     "url": f"{settings.metabase_url}/dashboard/{dashboard_id}"})
 
         # Les collections ne se cloisonnent qu'une fois créées.
-        par_groupe = {}
-        for connexion, tableau in zip(spec["connexions"], spec["tableaux"]):
-            par_groupe[groupes[connexion["groupe"]]] = collections[tableau["collection"]]
-        mb.cloisonner_collections(par_groupe)
+        mb.cloisonner_collections({groupes[c["groupe"]]: collections[t["collection"]]
+                                   for c, t in zip(spec["connexions"], spec["tableaux"])})
         log.info("cloisonnement des collections appliqué")
 
         for connexion in spec["connexions"]:
             demo = connexion.get("compte_demo")
-            if not demo:
-                continue
-            mb.ensure_utilisateur(demo["email"], demo["prenom"], demo["nom"],
-                                  settings.metabase_demo_password,
-                                  groupes[connexion["groupe"]])
-            log.info("compte de démonstration", extra={"email": demo["email"],
-                     "groupe": connexion["groupe"]})
+            if demo:
+                mb.ensure_utilisateur(demo["email"], demo["prenom"], demo["nom"],
+                                      settings.metabase_demo_password,
+                                      groupes[connexion["groupe"]])
+                log.info("compte de démonstration",
+                         extra={"email": demo["email"], "groupe": connexion["groupe"]})
+        run.vus = run.traites
+    return run.code_retour
 
-        counts["vus"] = counts["traites"]
-        status = "OK"
-        return 0
 
-    except Exception as exc:                      # noqa: BLE001
-        message = str(exc)
-        raise
-    finally:
-        try:
-            _close_run(client, run_id, "metabase", started, status, "carte", counts, message)
-        except Exception:                         # noqa: BLE001
-            log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
-        log.info("run terminé", extra={"run_id": run_id, "statut": status})
+# ─── Contrôles et état ──────────────────────────────────────────────────────
+
+def cmd_acces(settings, args, log) -> int:
+    """Crée les comptes cloisonnés puis éprouve le cloisonnement, aux deux niveaux."""
+    client = db.connect(settings)
+    log.info("comptes de restitution",
+             extra={"comptes": ", ".join(access.ensure_users(client, settings))})
+
+    moteur = access.verifier(settings)
+    _tableau_constats(moteur, "COMPTE", "OBJET", "objet")
+    manquements = [c for c in moteur if not c["conforme"]]
+
+    # Second niveau : l'interface ne doit pas contourner le moteur.
+    try:
+        restitution = metabase.verifier_cloisonnement(settings)
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("cloisonnement Metabase non vérifié", extra={"motif": str(exc)[:120]})
+        restitution = []
+
+    if restitution:
+        _tableau_constats(restitution, "COMPTE METABASE", "ACTION", "action")
+        # Une base injoignable n'est pas un défaut de cloisonnement.
+        indisponibles = [c for c in restitution if c.get("indisponible")]
+        if indisponibles:
+            log.warning("source de données injoignable — contrôle non concluant",
+                        extra={"controles": len(indisponibles)})
+        manquements += [c for c in restitution
+                        if not c["conforme"] and not c.get("indisponible")]
+
+    print()
+    if manquements:
+        log.error("cloisonnement non conforme", extra={"manquements": len(manquements)})
+        return 1
+    log.info("cloisonnement vérifié",
+             extra={"moteur": len(moteur), "restitution": len(restitution)})
+    return 0
+
+
+def _tableau_constats(constats, titre_compte: str, titre_objet: str, cle: str) -> None:
+    largeur = max(len(c[cle]) for c in constats)
+    print(f"\n  {titre_compte:<24} {titre_objet:<{largeur}}  {'ATTENDU':<9} {'OBTENU':<9}")
+    for c in constats:
+        print(f"  {c['compte']:<24} {c[cle]:<{largeur}}  "
+              f"{c['attendu']:<9} {c['obtenu']:<9} {'ok ' if c['conforme'] else 'ÉCHEC'}")
 
 
 def cmd_status(settings, args, log) -> int:
@@ -514,21 +363,29 @@ def cmd_status(settings, args, log) -> int:
     bloques = client.query(
         "SELECT count() FROM ops.run_log FINAL WHERE status = 'RUNNING'").result_rows[0][0]
     if bloques:
-        print(f"\n⚠ {bloques} run(s) resté(s) à l'état RUNNING — exécution interrompue "
+        print(f"\n⚠ {bloques} exécution(s) restée(s) à l'état RUNNING — interrompue(s) "
               "avant clôture. Voir logs/ pour la cause.")
     return 0
 
 
-def _table(client, query: str) -> str:
-    """Rend un résultat sous forme de table ASCII, mise en forme par ClickHouse."""
-    return client.raw_query(query + " FORMAT PrettyCompactMonoBlock").decode("utf-8").rstrip()
+def _table(client, requete: str) -> str:
+    """Rend un résultat en table ASCII, mise en forme par le moteur."""
+    return client.raw_query(requete + " FORMAT PrettyCompactMonoBlock").decode("utf-8").rstrip()
+
+
+# ─── Ligne de commande ──────────────────────────────────────────────────────
+
+COMMANDES = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
+             "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces,
+             "metabase": cmd_metabase, "status": cmd_status}
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="eds", description="Pipeline de l'entrepôt de données de santé")
+    parser = argparse.ArgumentParser(
+        prog="eds", description="Pipeline de l'entrepôt de données de santé")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("init", help="crée la couche d'exploitation (ops.*)")
+    sub.add_parser("init", help="crée la traçabilité, puis les tables")
 
     p_lake = sub.add_parser("lake", help="recopie les dépôts du CHU dans le lake")
     p_lake.add_argument("--date", help="ne traiter que cette date de dépôt (AAAA-MM-JJ)")
@@ -539,15 +396,11 @@ def main(argv: list[str] | None = None) -> int:
     p_bronze.add_argument("--date", help="ne charger que cette date de dépôt (AAAA-MM-JJ)")
     p_bronze.add_argument("--source", help="ne charger que ce flux")
 
-    sub.add_parser("silver", help="reconstruit la couche silver depuis bronze")
-
+    sub.add_parser("silver", help="reconstruit le modèle métier depuis bronze")
     sub.add_parser("gold", help="reconstruit les indicateurs, cloisonnés par usage")
-
     sub.add_parser("acces", help="crée les comptes cloisonnés et vérifie le cloisonnement")
-
     sub.add_parser("metabase", help="provisionne connexions et tableaux de bord")
-
-    sub.add_parser("status", help="état des ingestions et des derniers runs")
+    sub.add_parser("status", help="état des dépôts et des dernières exécutions")
 
     args = parser.parse_args(argv)
 
@@ -557,13 +410,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Configuration invalide : {exc}", file=sys.stderr)
         return 2
 
-    log = logging_setup.setup(ROOT / "logs")
-    handlers = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
-                "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces, "metabase": cmd_metabase,
-                "status": cmd_status}
+    log = journaliser(ROOT / "logs")
     try:
-        return handlers[args.command](settings, args, log)
-    except Exception:                                  # noqa: BLE001
+        return COMMANDES[args.command](settings, args, log)
+    except Exception:                              # noqa: BLE001
         log.critical("échec de la commande", exc_info=True, extra={"commande": args.command})
         return 1
 
