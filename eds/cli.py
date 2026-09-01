@@ -24,7 +24,7 @@ import time
 from datetime import date, datetime
 from pathlib import Path
 
-from eds import access, bronze, config, lake, metabase, sql
+from eds import access, bronze, config, gold, lake, metabase, silver, sql
 from eds.execution import Execution, journaliser
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -166,57 +166,17 @@ def cmd_bronze(settings, args, log) -> int:
 
 # ─── Transformations ────────────────────────────────────────────────────────
 
-def _executer_scripts(run, settings, scripts, log, substitutions=None):
-    """Joue des scripts SQL avec les règles métier, et consigne lesquelles."""
-    regles = sql.load_regles()
-    parametres = sql.to_parameters(regles)
-    sql.snapshot_parametres(run.client, run.run_id, parametres)
-    for script in scripts:
-        nb = sql.run_script(run.client, SQL_DIR / script, run.run_id,
-                                  parametres, substitutions)
-        run.traites += nb
-        log.info("script exécuté", extra={"fichier": script, "instructions": nb})
-    run.vus = run.traites
-    return parametres
-
-
 def cmd_silver(settings, args, log) -> int:
     """Reconstruit la couche silver depuis bronze, en SQL."""
     with Execution(settings, "silver", "instruction", log) as run:
-        parametres = _executer_scripts(run, settings, ["20_silver.sql"], log)
-        log.info("règles appliquées", extra={"run_id": run.run_id, **parametres})
-
-        for nom, lignes in run.client.query(
-                "SELECT name, total_rows FROM system.tables "
-                "WHERE database = 'silver' ORDER BY name").result_rows:
-            log.info("table construite", extra={"table": f"silver.{nom}", "lignes": lignes})
-
-        for table, regle, nb in run.client.query(
-                "SELECT table_source, regle, count() FROM ops.rejects "
-                "WHERE run_id = {r:String} GROUP BY table_source, regle "
-                "ORDER BY table_source, regle", parameters={"r": run.run_id}).result_rows:
-            log.warning("lignes écartées",
-                        extra={"table": table, "regle": regle, "lignes": nb})
+        silver.construire(run, settings, log)
     return run.code_retour
 
 
 def cmd_gold(settings, args, log) -> int:
     """Reconstruit les deux couches gold, cloisonnées par usage."""
     with Execution(settings, "gold", "instruction", log) as run:
-        regles = sql.load_regles()
-        # Le seuil et le définisseur sont SCELLÉS dans les vues de recherche :
-        # ni l'un ni l'autre ne doit pouvoir être fourni par l'appelant.
-        substitutions = {"K_ANONYMITE": sql.to_parameters(regles)["k"],
-                         "DEFINER": settings.ch_user}
-        _executer_scripts(run, settings,
-                          ["30_gold_pilotage.sql", "31_gold_recherche.sql"],
-                          log, substitutions)
-
-        for base in ("gold_pilotage", "gold_recherche"):
-            for nom, moteur in run.client.query(
-                    "SELECT name, engine FROM system.tables WHERE database = {d:String} "
-                    "ORDER BY name", parameters={"d": base}).result_rows:
-                log.info("objet gold", extra={"objet": f"{base}.{nom}", "type": moteur})
+        gold.construire(run, settings, log)
     return run.code_retour
 
 

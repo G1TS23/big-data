@@ -139,6 +139,23 @@ def run_script(client: Client, chemin: Path, run_id: str, parametres: dict,
     return len(instructions)
 
 
+def executer_avec_regles(run, scripts: list[str], log, substitutions: dict | None = None) -> dict:
+    """Joue des scripts avec les règles métier, et consigne lesquelles.
+
+    Les valeurs appliquées sont inscrites dans ops.parametres : un indicateur
+    n'est reproductible que si l'on sait avec quels seuils il a été calculé.
+    """
+    parametres = to_parameters(load_regles())
+    snapshot_parametres(run.client, run.run_id, parametres)
+    for script in scripts:
+        nb = run_script(run.client, ROOT / "sql" / script, run.run_id,
+                        parametres, substitutions)
+        run.traites += nb
+        log.info("script exécuté", extra={"fichier": script, "instructions": nb})
+    run.vus = run.traites
+    return parametres
+
+
 # ─── Interrogations du journal ──────────────────────────────────────────────
 
 def depots_deja_ingeres(client: Client, dates: Iterable[str]) -> set[tuple[str, str]]:

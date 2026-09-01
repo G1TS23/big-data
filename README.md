@@ -99,8 +99,13 @@ différents des nôtres. C'est le comportement attendu — voir `docs/EXPLOITATI
 sql/         DDL et transformations bronze → silver → gold
 config/      flux sources et règles métier (seuils, bornes, fenêtres)
 eds/         orchestrateur — un module par étape du pipeline :
-               config · execution · pseudonymize · lake · bronze · sql
-               access · metabase · cli
+               lake · bronze · silver · gold, plus config, execution,
+               pseudonymize, sql, access, metabase, cli
+
+             silver.py et gold.py sont volontairement minces : ces couches se
+             transforment en SQL, dans sql/. Trente lignes de Python en face de
+             trois cents de SQL, c'est la preuve que le calcul est resté dans
+             le moteur.
 tests/       tests des règles métier et de la pseudonymisation
 docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2) · captures
 sql/dashboards/  requêtes des cartes, versionnées
