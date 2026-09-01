@@ -19,11 +19,27 @@ Deux régimes, selon ce que le fichier contient :
 Un fichier illisible ou dont l'en-tête ne correspond pas au contrat déclaré est
 mis en quarantaine et le traitement se poursuit sur les autres flux : un dépôt
 corrompu ne doit pas faire échouer la journée entière.
+
+REPRISE APRÈS INTERRUPTION
+--------------------------
+Le CHU garantit que le contenu d'un dossier de dépôt ne change jamais. Le
+risque n'est donc pas la source qui bouge, c'est NOTRE écriture qui s'arrête en
+chemin — processus tué, disque plein, machine éteinte.
+
+Chaque fichier est donc écrit sous un nom provisoire, forcé sur le disque, puis
+publié par un renommage. Le renommage est atomique : à son emplacement
+définitif, un fichier est TOUJOURS complet. Une interruption ne laisse qu'un
+résidu « .partiel », que l'exécution suivante efface avant de recommencer.
+
+C'est plus sûr que ce qui précédait, qui relisait le fichier copié pour
+comparer son empreinte : le contrôle détectait la corruption, mais laissait le
+fichier tronqué à sa place définitive.
 """
 from __future__ import annotations
 
 import csv
 import hashlib
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -34,6 +50,10 @@ from eds.pseudonymize import apply_privacy
 
 DATE_DIR = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CHUNK = 1 << 20
+
+# Suffixe des écritures en cours. Un fichier qui le porte est incomplet par
+# définition : il n'a pas atteint le renommage final.
+PARTIEL = ".partiel"
 
 
 @dataclass(frozen=True)
@@ -114,15 +134,49 @@ def _check_header(dep: Deposit) -> str | None:
     return None
 
 
+def nettoyer_residus(lake_root: Path) -> list[Path]:
+    """Efface les écritures laissées en plan par une exécution interrompue.
+
+    Un « .partiel » n'a pas atteint son renommage : il est incomplet, et la
+    source étant immuable, il sera simplement réécrit.
+    """
+    residus = sorted(lake_root.rglob(f"*{PARTIEL}")) if lake_root.is_dir() else []
+    for residu in residus:
+        residu.unlink()
+    return residus
+
+
+def _publier(temporaire: Path, target: Path) -> None:
+    """Rend le fichier visible à son emplacement définitif, d'un seul coup.
+
+    os.replace est atomique au sein d'un même système de fichiers : aucun
+    lecteur ne peut observer un fichier à moitié écrit.
+    """
+    os.replace(temporaire, target)
+
+
 def _copy_raw(dep: Deposit, target: Path) -> IngestResult:
+    """Copie fidèle, en une passe : on lit, on hache et on écrit d'un même flux.
+
+    L'ancienne version lisait le fichier trois fois — hacher la source, copier,
+    hacher la copie. Sur le monitoring d'un vrai CHU, c'était le poste de coût
+    principal d'une étape qui ne fait que déplacer des octets.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
-    src_sha = sha256_file(dep.src_path)
-    shutil.copy2(dep.src_path, target)
-    lake_sha = sha256_file(target)
-    if lake_sha != src_sha:
-        raise OSError(f"copie corrompue : {dep.src_path} -> {target}")
+    temporaire = target.with_name(target.name + PARTIEL)
+    empreinte = hashlib.sha256()
+
+    with open(dep.src_path, "rb") as entree, open(temporaire, "wb") as sortie:
+        for bloc in iter(lambda: entree.read(_CHUNK), b""):
+            empreinte.update(bloc)
+            sortie.write(bloc)
+        sortie.flush()
+        os.fsync(sortie.fileno())      # les octets sont sur le disque…
+    _publier(temporaire, target)        # …avant que le nom ne soit publié
+
+    digest = empreinte.hexdigest()
     return IngestResult(
-        dep, "OK", src_sha256=src_sha, lake_path=target, lake_sha256=lake_sha,
+        dep, "OK", src_sha256=digest, lake_path=target, lake_sha256=digest,
         bytes_in=dep.src_path.stat().st_size,
     )
 
@@ -131,11 +185,15 @@ def _copy_pseudonymized(dep: Deposit, target: Path, salt: str) -> IngestResult:
     privacy = dep.spec["privacy"]
     columns = dep.spec["lake_columns"]
     target.parent.mkdir(parents=True, exist_ok=True)
+    temporaire = target.with_name(target.name + PARTIEL)
+    # Les fichiers d'identité sont des CSV de quelques centaines de kilo-octets :
+    # une passe de hachage supplémentaire y est sans conséquence, alors qu'elle
+    # coûterait cher sur le flux volumineux, qui lui est copié en une passe.
     src_sha = sha256_file(dep.src_path)
 
     rows_in = rows_out = 0
     with open(dep.src_path, newline="", encoding="utf-8") as fin, \
-         open(target, "w", newline="", encoding="utf-8") as fout:
+         open(temporaire, "w", newline="", encoding="utf-8") as fout:
         # lineterminator explicite : le dialecte csv par défaut écrit en CRLF,
         # ce qui alourdit inutilement les fichiers et surprend les outils Unix.
         writer = csv.DictWriter(fout, fieldnames=columns, extrasaction="ignore",
@@ -145,6 +203,9 @@ def _copy_pseudonymized(dep: Deposit, target: Path, salt: str) -> IngestResult:
             rows_in += 1
             writer.writerow(apply_privacy(row, privacy, salt))
             rows_out += 1
+        fout.flush()
+        os.fsync(fout.fileno())
+    _publier(temporaire, target)
 
     return IngestResult(
         dep, "OK", src_sha256=src_sha, lake_path=target, lake_sha256=sha256_file(target),

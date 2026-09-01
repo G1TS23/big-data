@@ -87,6 +87,7 @@ La suite de tests, elle, tourne sans ces données : `tests/fixtures/` contient d
 | Cloisonnement | trois usages, trois comptes ClickHouse, trois collections Metabase ; `eds acces` en fait la démonstration (38 contrôles) |
 | Petits effectifs | seuil k = 5 **scellé dans les vues** de recherche, en `SQL SECURITY DEFINER` — ni paramétrable, ni contournable |
 | Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → fichier source et empreinte |
+| Reprise sur incident | écriture sous nom provisoire puis renommage atomique : à son emplacement définitif, un fichier est toujours complet |
 | Garde-fou outillé | `.githooks/pre-commit` refuse tout commit contenant un NIR ou une zone de données |
 
 Le sel (`EDS_SALT`) n'est pas versionné : une réinstallation produit des pseudonymes

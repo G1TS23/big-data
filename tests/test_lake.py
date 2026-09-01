@@ -1,7 +1,10 @@
 """Contrôles de l'entrée du lake : ce qui est copié, ce qui est écarté."""
 import csv
 
+import pytest
+
 from eds.config import ConfigError, _validate
+from eds import lake
 from eds.lake import discover, ingest, sha256_file
 from tests.conftest import FIXTURES, SALT
 
@@ -131,6 +134,65 @@ class TestCopieBrute:
         resultat = ingest(depot, tmp_path, SALT)
         assert resultat.status == "OK"
         assert resultat.src_sha256 == resultat.lake_sha256
+
+
+class TestReprisApresInterruption:
+    """Le CHU garantit que le contenu d'un dépôt ne change jamais. Le risque
+    n'est donc pas la source qui bouge, c'est notre écriture qui s'arrête."""
+
+    def test_une_interruption_ne_laisse_rien_a_l_emplacement_definitif(self, tmp_path, monkeypatch):
+        depot = _deposit("monitoring", "2026-01-01")
+        monkeypatch.setattr(lake, "_publier",
+                            lambda *a: (_ for _ in ()).throw(KeyboardInterrupt("tué")))
+        with pytest.raises(KeyboardInterrupt):
+            ingest(depot, tmp_path, SALT)
+
+        publies = list(tmp_path.glob("monitoring/**/monitoring.parquet"))
+        assert publies == [], "un fichier incomplet occupe son emplacement définitif"
+        assert list(tmp_path.rglob(f"*{lake.PARTIEL}")), "aucun résidu à reprendre"
+
+    def test_la_reprise_efface_le_residu_puis_recommence(self, tmp_path, monkeypatch):
+        depot = _deposit("monitoring", "2026-01-01")
+        monkeypatch.setattr(lake, "_publier",
+                            lambda *a: (_ for _ in ()).throw(KeyboardInterrupt("tué")))
+        with pytest.raises(KeyboardInterrupt):
+            ingest(depot, tmp_path, SALT)
+        monkeypatch.undo()
+
+        effaces = lake.nettoyer_residus(tmp_path)
+        assert [r.name for r in effaces] == ["monitoring.parquet" + lake.PARTIEL]
+        assert not list(tmp_path.rglob(f"*{lake.PARTIEL}"))
+
+        resultat = ingest(depot, tmp_path, SALT)
+        assert resultat.status == "OK"
+        assert resultat.lake_path.read_bytes() == depot.src_path.read_bytes()
+
+    def test_le_nettoyage_epargne_les_fichiers_publies(self, tmp_path):
+        """Un fichier correctement publié ne doit jamais être effacé par la
+        reprise, sans quoi chaque incident recopierait tout le lake."""
+        resultat = ingest(_deposit("monitoring", "2026-01-01"), tmp_path, SALT)
+        assert lake.nettoyer_residus(tmp_path) == []
+        assert resultat.lake_path.is_file()
+
+    def test_le_nettoyage_supporte_un_lake_inexistant(self, tmp_path):
+        assert lake.nettoyer_residus(tmp_path / "jamais_cree") == []
+
+    def test_la_copie_brute_ne_lit_la_source_qu_une_fois(self, tmp_path, monkeypatch):
+        """L'empreinte est calculée sur le flux copié, pas par une relecture :
+        sur le flux volumineux, c'était le poste de coût principal."""
+        depot = _deposit("monitoring", "2026-01-01")
+        lectures = []
+        import builtins
+        vrai_open = builtins.open
+
+        def compter(fichier, mode="r", *a, **kw):
+            if str(fichier) == str(depot.src_path) and "b" in mode:
+                lectures.append(fichier)
+            return vrai_open(fichier, mode, *a, **kw)
+
+        monkeypatch.setattr(builtins, "open", compter)
+        ingest(depot, tmp_path, SALT)
+        assert len(lectures) == 1, f"source lue {len(lectures)} fois"
 
 
 class TestJointureEntreFlux:

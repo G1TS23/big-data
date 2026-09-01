@@ -91,10 +91,22 @@ def cmd_lake(settings, args, log) -> int:
         counts["vus"] = len(deposits)
         log.info("dépôts à examiner", extra={"run_id": run_id, "nb": len(deposits)})
 
+        # Reprise : une exécution interrompue laisse des écritures inachevées.
+        # Elles sont effacées avant de recommencer — la source étant immuable,
+        # il suffit de les réécrire.
+        residus = lake.nettoyer_residus(settings.lake_path)
+        if residus:
+            log.warning("écritures inachevées effacées",
+                        extra={"nb": len(residus),
+                               "fichiers": ", ".join(r.name for r in residus[:5])})
+
+        # Une seule requête pour toute l'exécution.
+        deja = set() if args.force else db.depots_deja_ingeres(
+            client, [d.deposit_date for d in deposits])
+
         for dep in deposits:
             try:
-                src_sha = lake.sha256_file(dep.src_path)
-                if not args.force and db.already_ingested(client, dep.source, dep.deposit_date, src_sha):
+                if (dep.source, dep.deposit_date) in deja:
                     counts["ignores"] += 1
                     log.info("déjà ingéré, ignoré",
                              extra={"source": dep.source, "date": dep.deposit_date})
@@ -113,7 +125,7 @@ def cmd_lake(settings, args, log) -> int:
 
                 rows.append([
                     run_id, dep.source, date.fromisoformat(dep.deposit_date), str(dep.src_path),
-                    result.src_sha256 or src_sha,
+                    result.src_sha256,
                     str(result.lake_path or ""), result.lake_sha256,
                     result.rows_in, result.rows_out, result.bytes_in,
                     result.status, result.reason, result.ingested_at,
