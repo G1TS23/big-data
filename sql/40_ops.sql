@@ -33,16 +33,18 @@ ENGINE = ReplacingMergeTree(updated_at)
 ORDER BY run_id;
 
 -- Un enregistrement par fichier recopié dans le lake.
--- src_sha256 porte l'idempotence : un fichier déjà ingéré à l'identique est ignoré.
+--
+-- L'idempotence repose sur (source, deposit_date) : le CHU garantit qu'un
+-- dossier de dépôt, une fois écrit, ne change plus. Aucune empreinte n'est
+-- stockée — elle ne prouverait rien qu'on ne puisse recalculer depuis la source
+-- ou depuis le lake, et l'obtenir aurait imposé de relire chaque fichier.
 CREATE TABLE IF NOT EXISTS ops.ingestion_log
 (
     run_id        String,
     source        LowCardinality(String),
     deposit_date  Date,
     src_path      String,
-    src_sha256    FixedString(64),
     lake_path     String,
-    lake_sha256   String,
     rows_in       UInt64 DEFAULT 0,
     rows_out      UInt64 DEFAULT 0,
     bytes_in      UInt64 DEFAULT 0,
@@ -52,7 +54,7 @@ CREATE TABLE IF NOT EXISTS ops.ingestion_log
 )
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(deposit_date)
-ORDER BY (source, deposit_date, src_sha256);
+ORDER BY (source, deposit_date);
 
 -- Une ligne par enregistrement écarté par un contrôle qualité (couche silver).
 CREATE TABLE IF NOT EXISTS ops.rejects

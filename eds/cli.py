@@ -124,9 +124,8 @@ def cmd_lake(settings, args, log) -> int:
                              "lignes": result.rows_out or "-", "octets": result.bytes_in})
 
                 rows.append([
-                    run_id, dep.source, date.fromisoformat(dep.deposit_date), str(dep.src_path),
-                    result.src_sha256,
-                    str(result.lake_path or ""), result.lake_sha256,
+                    run_id, dep.source, date.fromisoformat(dep.deposit_date),
+                    str(dep.src_path), str(result.lake_path or ""),
                     result.rows_in, result.rows_out, result.bytes_in,
                     result.status, result.reason, result.ingested_at,
                 ])
@@ -150,8 +149,8 @@ def cmd_lake(settings, args, log) -> int:
         try:
             if rows:
                 client.insert("ops.ingestion_log", rows, column_names=[
-                    "run_id", "source", "deposit_date", "src_path", "src_sha256",
-                    "lake_path", "lake_sha256", "rows_in", "rows_out", "bytes_in",
+                    "run_id", "source", "deposit_date", "src_path", "lake_path",
+                    "rows_in", "rows_out", "bytes_in",
                     "status", "reason", "ingested_at"])
         except Exception:                         # noqa: BLE001
             log.error("journal d'ingestion non écrit", exc_info=True, extra={"run_id": run_id})

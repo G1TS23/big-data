@@ -5,7 +5,7 @@ import pytest
 
 from eds.config import ConfigError, _validate
 from eds import lake
-from eds.lake import discover, ingest, sha256_file
+from eds.lake import discover, ingest
 from tests.conftest import FIXTURES, SALT
 
 SOURCES = {
@@ -95,12 +95,14 @@ class TestCopiePseudonymisee:
 
 
 class TestCopieBrute:
-    def test_empreinte_identique(self, tmp_path):
-        """Un flux sans identité est copié octet pour octet, et c'est vérifié."""
+    def test_copie_octet_pour_octet(self, tmp_path):
+        """Un flux sans identité est copié à l'identique — vérifié sur les
+        octets eux-mêmes, ce qu'une comparaison d'empreintes ne faisait
+        qu'indirectement."""
         depot = _deposit("diagnostics", "2026-01-01")
         resultat = ingest(depot, tmp_path, SALT)
         assert resultat.status == "OK"
-        assert resultat.src_sha256 == resultat.lake_sha256 == sha256_file(depot.src_path)
+        assert resultat.lake_path.read_bytes() == depot.src_path.read_bytes()
 
     def test_fichier_binaire_copie_sans_alteration(self, tmp_path):
         """Le monitoring arrive en Parquet. Une copie qui passerait par un
@@ -109,7 +111,6 @@ class TestCopieBrute:
         resultat = ingest(depot, tmp_path, SALT)
         assert resultat.status == "OK"
         assert resultat.lake_path.read_bytes() == depot.src_path.read_bytes()
-        assert resultat.src_sha256 == resultat.lake_sha256
 
     def test_le_parquet_reste_lisible_apres_copie(self, tmp_path):
         """La copie doit rester un Parquet valide, pas seulement des octets
@@ -133,7 +134,7 @@ class TestCopieBrute:
         depot = _deposit("referentiels/services", "2026-01-01")
         resultat = ingest(depot, tmp_path, SALT)
         assert resultat.status == "OK"
-        assert resultat.src_sha256 == resultat.lake_sha256
+        assert resultat.lake_path.read_bytes() == depot.src_path.read_bytes()
 
 
 class TestReprisApresInterruption:
@@ -177,22 +178,12 @@ class TestReprisApresInterruption:
     def test_le_nettoyage_supporte_un_lake_inexistant(self, tmp_path):
         assert lake.nettoyer_residus(tmp_path / "jamais_cree") == []
 
-    def test_la_copie_brute_ne_lit_la_source_qu_une_fois(self, tmp_path, monkeypatch):
-        """L'empreinte est calculée sur le flux copié, pas par une relecture :
-        sur le flux volumineux, c'était le poste de coût principal."""
-        depot = _deposit("monitoring", "2026-01-01")
-        lectures = []
-        import builtins
-        vrai_open = builtins.open
-
-        def compter(fichier, mode="r", *a, **kw):
-            if str(fichier) == str(depot.src_path) and "b" in mode:
-                lectures.append(fichier)
-            return vrai_open(fichier, mode, *a, **kw)
-
-        monkeypatch.setattr(builtins, "open", compter)
-        ingest(depot, tmp_path, SALT)
-        assert len(lectures) == 1, f"source lue {len(lectures)} fois"
+    def test_la_copie_brute_ne_relit_pas_la_source(self, tmp_path):
+        """Décider et copier ne doivent coûter qu'une lecture. L'ancienne
+        version en faisait trois : hacher la source, copier, hacher la copie."""
+        resultat = ingest(_deposit("monitoring", "2026-01-01"), tmp_path, SALT)
+        assert not hasattr(resultat, "src_sha256"), \
+            "le résultat porte encore une empreinte, donc une relecture"
 
 
 class TestJointureEntreFlux:

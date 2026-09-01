@@ -38,7 +38,6 @@ fichier tronqué à sa place définitive.
 from __future__ import annotations
 
 import csv
-import hashlib
 import os
 import re
 import shutil
@@ -69,22 +68,12 @@ class Deposit:
 class IngestResult:
     deposit: Deposit
     status: str                      # OK | QUARANTINE | SKIPPED
-    src_sha256: str = ""
     lake_path: Path | None = None
-    lake_sha256: str = ""
     rows_in: int = 0
     rows_out: int = 0
     bytes_in: int = 0
     reason: str = ""
     ingested_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(_CHUNK), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _file_specs(name: str, spec: dict) -> list[dict]:
@@ -156,29 +145,25 @@ def _publier(temporaire: Path, target: Path) -> None:
 
 
 def _copy_raw(dep: Deposit, target: Path) -> IngestResult:
-    """Copie fidèle, en une passe : on lit, on hache et on écrit d'un même flux.
+    """Copie fidèle, publiée d'un seul coup.
 
-    L'ancienne version lisait le fichier trois fois — hacher la source, copier,
-    hacher la copie. Sur le monitoring d'un vrai CHU, c'était le poste de coût
-    principal d'une étape qui ne fait que déplacer des octets.
+    Aucune empreinte n'est calculée ici. Elle ne servait qu'à l'idempotence, que
+    la date assure désormais ; et comme le contenu d'un dépôt ne change jamais,
+    elle reste recalculable à tout moment depuis la source ou depuis le lake.
+    La stocker à l'ingestion aurait obligé à relire chaque fichier pour ne rien
+    prouver de plus.
+
+    Le renommage protège du cas demandé : un processus interrompu ne laisse
+    qu'un « .partiel ». Une coupure de courant entre l'écriture et le renommage
+    relève d'une autre classe de panne — le dépôt n'étant alors pas journalisé,
+    l'exécution suivante le refait simplement.
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     temporaire = target.with_name(target.name + PARTIEL)
-    empreinte = hashlib.sha256()
-
-    with open(dep.src_path, "rb") as entree, open(temporaire, "wb") as sortie:
-        for bloc in iter(lambda: entree.read(_CHUNK), b""):
-            empreinte.update(bloc)
-            sortie.write(bloc)
-        sortie.flush()
-        os.fsync(sortie.fileno())      # les octets sont sur le disque…
-    _publier(temporaire, target)        # …avant que le nom ne soit publié
-
-    digest = empreinte.hexdigest()
-    return IngestResult(
-        dep, "OK", src_sha256=digest, lake_path=target, lake_sha256=digest,
-        bytes_in=dep.src_path.stat().st_size,
-    )
+    shutil.copy2(dep.src_path, temporaire)
+    _publier(temporaire, target)
+    return IngestResult(dep, "OK", lake_path=target,
+                        bytes_in=dep.src_path.stat().st_size)
 
 
 def _copy_pseudonymized(dep: Deposit, target: Path, salt: str) -> IngestResult:
@@ -186,10 +171,6 @@ def _copy_pseudonymized(dep: Deposit, target: Path, salt: str) -> IngestResult:
     columns = dep.spec["lake_columns"]
     target.parent.mkdir(parents=True, exist_ok=True)
     temporaire = target.with_name(target.name + PARTIEL)
-    # Les fichiers d'identité sont des CSV de quelques centaines de kilo-octets :
-    # une passe de hachage supplémentaire y est sans conséquence, alors qu'elle
-    # coûterait cher sur le flux volumineux, qui lui est copié en une passe.
-    src_sha = sha256_file(dep.src_path)
 
     rows_in = rows_out = 0
     with open(dep.src_path, newline="", encoding="utf-8") as fin, \
@@ -207,10 +188,8 @@ def _copy_pseudonymized(dep: Deposit, target: Path, salt: str) -> IngestResult:
         os.fsync(fout.fileno())
     _publier(temporaire, target)
 
-    return IngestResult(
-        dep, "OK", src_sha256=src_sha, lake_path=target, lake_sha256=sha256_file(target),
-        rows_in=rows_in, rows_out=rows_out, bytes_in=dep.src_path.stat().st_size,
-    )
+    return IngestResult(dep, "OK", lake_path=target, rows_in=rows_in, rows_out=rows_out,
+                        bytes_in=dep.src_path.stat().st_size)
 
 
 def ingest(dep: Deposit, lake_root: Path, salt: str) -> IngestResult:
