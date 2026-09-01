@@ -106,26 +106,24 @@ tableaux:
          description: "Nombre de patients distincts, non de diagnostics posés.",
          serie: "Patients", couleur: serie_1, valeurs: true,
          row: 8, col: 0, size_x: 24, size_y: 9}
-      - {sql: rech_cohorte_femmes.sql, titre: "Description des cohortes — femmes", forme: row,
-         description: "Répartition par tranche d'âge, pathologie par pathologie. Âge atteint dans l'année de l'admission.",
-         empile: true, rampe: rampe_age,
-         series: ["0-17 ans", "18-44 ans", "45-64 ans", "65-74 ans", "75-84 ans", "85 ans et plus"],
-         axe_x: "Pathologie", axe_y: "Patientes",
-         row: 17, col: 0, size_x: 12, size_y: 10}
-      - {sql: rech_cohorte_hommes.sql, titre: "Description des cohortes — hommes", forme: row,
-         description: "Même axe et même rampe qu'à gauche : les deux graphiques se comparent directement.",
+      - {sql: rech_pathologie_age.sql, titre: "Description des cohortes — par âge", forme: row,
+         description: "Répartition par tranche d'âge, pathologie par pathologie. Âge atteint dans l'année de l'admission, à ±1 an près.",
          empile: true, rampe: rampe_age,
          series: ["0-17 ans", "18-44 ans", "45-64 ans", "65-74 ans", "75-84 ans", "85 ans et plus"],
          axe_x: "Pathologie", axe_y: "Patients",
-         row: 17, col: 12, size_x: 12, size_y: 10}
-
+         row: 17, col: 0, size_x: 24, size_y: 9}
+      - {sql: rech_pathologie_sexe.sql, titre: "Description des cohortes — par sexe", forme: row,
+         description: "Même axe que le graphique précédent : les deux compositions se lisent l'une sous l'autre, pathologie par pathologie.",
+         empile: true, series: ["Femmes", "Hommes"], valeurs: true,
+         axe_x: "Pathologie", axe_y: "Patients",
+         row: 26, col: 0, size_x: 24, size_y: 9}
       - {sql: rech_duree_pathologie.sql, titre: "Durée moyenne de séjour par pathologie", forme: row,
          description: "Sur le diagnostic principal, séjours clos.",
          serie: "Durée moyenne (jours)", couleur: serie_3, valeurs: true,
-         row: 27, col: 0, size_x: 24, size_y: 8}
+         row: 35, col: 0, size_x: 24, size_y: 8}
       - {sql: rech_comorbidites.sql, titre: "Pathologies associées", forme: table,
          description: "Couples de diagnostics posés sur un même séjour.",
-         row: 35, col: 0, size_x: 24, size_y: 8}
+         row: 43, col: 0, size_x: 24, size_y: 8}
 
   # ─── Exploitation du pipeline ─────────────────────────────────────────────
   - nom: "Exploitation du pipeline"

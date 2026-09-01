@@ -72,6 +72,20 @@ INNER JOIN silver.dim_cim10 AS c ON c.code_cim10 = f.code_cim10
 GROUP BY c.code_cim10, c.libelle, f.tranche_age
 HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
 
+-- ─── Répartition par sexe ──────────────────────────────────────────────────
+-- Le seuil porte sur le couple (pathologie, sexe), granularité de la question.
+-- Le déduire de la vue précédente en sommant sur les tranches d'âge donnerait
+-- un total AMPUTÉ des cellules que le seuil y masque.
+CREATE OR REPLACE VIEW gold_recherche.coh_pathologie_sexe
+DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS
+SELECT c.code_cim10 AS code_cim10, c.libelle AS libelle, p.sex AS sex,
+       uniqExact(f.patient_key) AS patients
+FROM silver.fait_diagnostic AS f
+INNER JOIN silver.dim_patient AS p ON p.patient_key = f.patient_key
+INNER JOIN silver.dim_cim10   AS c ON c.code_cim10 = f.code_cim10
+GROUP BY c.code_cim10, c.libelle, p.sex
+HAVING uniqExact(f.patient_key) >= $$K_ANONYMITE$$;
+
 -- ─── Durée de séjour par pathologie ────────────────────────────────────────
 CREATE OR REPLACE VIEW gold_recherche.coh_duree_pathologie
 DEFINER = $$DEFINER$$ SQL SECURITY DEFINER AS

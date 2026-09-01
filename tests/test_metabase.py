@@ -54,15 +54,22 @@ class TestSouverainetéDeLaSpecification:
     """Le fichier décrit un ÉTAT, pas une suite d'ajouts : ce qu'il ne décrit
     plus ne doit pas survivre dans l'instance."""
 
-    def test_les_deux_facettes_partagent_axe_et_rampe(self):
-        """Deux petits multiples ne se comparent que s'ils sont réglés à
-        l'identique : mêmes séries, même ordre, même rampe."""
-        facettes = [c for _, c in CARTES if c["sql"].startswith("rech_cohorte_")]
-        assert len(facettes) == 2
-        assert facettes[0]["series"] == facettes[1]["series"]
-        assert facettes[0]["rampe"] == facettes[1]["rampe"]
-        assert facettes[0]["size_y"] == facettes[1]["size_y"]
-        assert facettes[0]["row"] == facettes[1]["row"]
+    def test_les_deux_compositions_partagent_leur_axe(self):
+        """Âge et sexe se lisent l'un sous l'autre, pathologie par pathologie.
+        La lecture croisée n'est possible que si les deux graphiques ont le même
+        axe, la même largeur, et sont empilés verticalement."""
+        age = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_age.sql")
+        sexe = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_sexe.sql")
+        assert age["axe_x"] == sexe["axe_x"] == "Pathologie"
+        assert age["col"] == sexe["col"] and age["size_x"] == sexe["size_x"]
+        assert sexe["row"] == age["row"] + age["size_y"], "les cartes ne se suivent pas"
+
+    def test_les_tranches_dage_suivent_une_rampe_ordonnee(self):
+        """Un axe ordonné appelle une seule teinte du clair au foncé ; le sexe,
+        qui n'a pas d'ordre, appelle des teintes distinctes."""
+        age = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_age.sql")
+        sexe = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_sexe.sql")
+        assert age.get("rampe") and not sexe.get("rampe")
 
     def test_aucune_carte_ne_depend_d_un_filtre(self):
         """Le mécanisme de filtre a été retiré : plus aucune requête ne doit
