@@ -9,21 +9,28 @@ RUN useradd --create-home --uid 10001 eds
 
 WORKDIR /app
 
-# Versions RÉSOLUES, figées dans requirements.lock : deux constructions de
-# l'image à des semaines d'intervalle installent exactement les mêmes paquets.
-# requirements.txt n'exprime que des minima, ce qui suffit au développement
-# mais pas à la reproductibilité d'un livrable.
+# La SEULE installation de l'image, et elle est verrouillée sur trois plans :
+#   --require-hashes      chaque paquet doit correspondre à son empreinte, ce
+#                         qui ferme la porte à la substitution en amont ;
+#   --only-binary :all:   aucune archive source, donc aucun script setup.py
+#                         exécuté pendant la construction ;
+#   requirements.lock     versions résolues, pas des minima : deux
+#                         constructions à des semaines d'écart sont identiques.
 COPY requirements.lock ./
-RUN pip install --no-cache-dir -r requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.lock
 
-COPY requirements.txt pyproject.toml ./
+# Le code du projet n'est pas installé par pip : il est copié, et rendu
+# importable par PYTHONPATH. Une seconde invocation de pip n'apporterait rien —
+# les dépendances sont déjà là — et ouvrirait une résolution non verrouillée.
 COPY eds ./eds
-RUN pip install --no-cache-dir --no-deps -e .
-
-# Déclarations et scripts. Montés en lecture seule par docker-compose en
-# développement, embarqués ici pour que l'image soit autonome.
 COPY config ./config
 COPY sql ./sql
+ENV PYTHONPATH=/app
+
+# `eds` reste disponible dans le conteneur, sans passer par un point d'entrée
+# installé : `docker compose exec scheduler eds status` fonctionne.
+RUN printf '#!/bin/sh\nexec python -m eds "$@"\n' > /usr/local/bin/eds \
+ && chmod +x /usr/local/bin/eds
 
 # Les journaux doivent sortir immédiatement, sans tampon : sans cela
 # `docker compose logs` ne montrerait rien tant que le tampon n'est pas plein.
