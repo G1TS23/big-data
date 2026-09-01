@@ -4,6 +4,8 @@
     eds lake                    recopie dans le lake les dépôts non traités
     eds lake --date 2026-08-27  rejoue une journée précise (idempotent)
     eds bronze                  charge le lake dans les tables typées
+    eds run                     enchaîne lake → bronze → silver → gold
+    eds scheduler               déclenche le pipeline à intervalle régulier
     eds silver                  reconstruit le modèle métier, en SQL
     eds gold                    reconstruit les indicateurs, cloisonnés
     eds acces                   crée les comptes et éprouve le cloisonnement
@@ -19,19 +21,33 @@ laisse ici la seule logique de chaque commande.
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
 import time
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from eds import access, bronze, config, gold, lake, metabase, silver, sql
+from eds import access, bronze, config, gold, lake, metabase, silver, sql, verrou
 from eds.execution import Execution, journaliser
 
 ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
+FUSEAU = "Europe/Paris"
 
 # Joués dans cet ordre : la traçabilité existe avant la donnée.
 SCRIPTS_INIT = ["40_ops.sql", "10_bronze.sql", "50_acces.sql"]
+
+def _relatif(chemin, racine) -> str:
+    """Chemin relatif à sa racine, pour que le journal reste portable."""
+    if not chemin:
+        return ""
+    chemin = Path(chemin)
+    try:
+        return str(chemin.relative_to(racine))
+    except ValueError:
+        return str(chemin)          # hors racine : on garde tel quel, c'est un signal
+
 
 COLONNES_INGESTION = ["run_id", "source", "deposit_date", "src_path", "lake_path",
                       "rows_in", "rows_out", "bytes_in", "status", "reason", "ingested_at"]
@@ -105,7 +121,8 @@ def cmd_lake(settings, args, log) -> int:
 
                 run.journaliser("ops.ingestion_log", COLONNES_INGESTION, [
                     run.run_id, depot.source, date.fromisoformat(depot.deposit_date),
-                    str(depot.src_path), str(resultat.lake_path or ""),
+                    _relatif(depot.src_path, settings.source_path),
+                    _relatif(resultat.lake_path, settings.lake_path),
                     resultat.rows_in, resultat.rows_out, resultat.bytes_in,
                     resultat.status, resultat.reason, resultat.ingested_at])
     return run.code_retour
@@ -147,7 +164,10 @@ def cmd_bronze(settings, args, log) -> int:
                 try:
                     # Rejeu : la partition du jour est effacée avant réinsertion.
                     bronze.drop_partition(run.client, cible["table"], jour)
-                    resultat = bronze.load_file(settings, cible, Path(chemin), jour, run.run_id)
+                    # Le chemin est relatif : chaque environnement le résout
+                    # contre SON lake.
+                    resultat = bronze.load_file(settings, cible,
+                                                settings.lake_path / chemin, jour, run.run_id)
                     run.traites += 1
                     log.info("chargé", extra={"source": source, "date": jour,
                              "table": resultat.table, "lignes": resultat.rows_loaded,
@@ -251,6 +271,80 @@ def cmd_metabase(settings, args, log) -> int:
     return run.code_retour
 
 
+# ─── La chaîne complète ─────────────────────────────────────────────────────
+
+# L'ordre est celui du patron médaillon : chaque étape consomme la précédente.
+# La restitution n'y figure pas — les cartes interrogent gold directement, elles
+# n'ont donc rien à rafraîchir. `eds metabase` et `eds acces` provisionnent, une
+# fois pour toutes.
+CHAINE = ["lake", "bronze", "silver", "gold"]
+
+
+def cmd_run(settings, args, log) -> int:
+    """Enchaîne le pipeline, et s'arrête à la première étape en échec.
+
+    Poursuivre après un échec produirait des indicateurs calculés sur des
+    données incomplètes — pire qu'une absence d'indicateurs, parce que rien ne
+    les distinguerait des bons.
+    """
+    try:
+        with verrou.unique(ROOT / "logs" / "eds.lock", attendre=args.attendre):
+            debut = time.perf_counter()
+            for rang, etape in enumerate(CHAINE, 1):
+                log.info("étape", extra={"rang": f"{rang}/{len(CHAINE)}", "nom": etape})
+                code = COMMANDES[etape](settings, args, log)
+                if code != 0:
+                    log.error("chaîne interrompue", extra={"etape": etape, "code": code})
+                    return code
+            log.info("chaîne complète",
+                     extra={"etapes": len(CHAINE), "duree_s": round(time.perf_counter() - debut, 2)})
+            return 0
+    except verrou.DejaEnCours as exc:
+        log.warning("exécution ignorée", extra={"motif": str(exc)})
+        return 0                                   # ce n'est pas une erreur
+
+
+def cmd_scheduler(settings, args, log) -> int:
+    """Déclenche le pipeline à intervalle régulier, sans intervention.
+
+    Trois précautions, chacune pour un incident réel :
+      max_instances=1  une exécution qui déborde ne se voit pas doublée ;
+      coalesce=True    plusieurs déclenchements manqués — machine en veille,
+                       conteneur arrêté — donnent UNE exécution de rattrapage,
+                       pas une par créneau perdu ;
+      grâce d'une heure un démarrage tardif rattrape le créneau du jour au lieu
+                       de l'abandonner.
+    Le verrou de fichier reste la garantie ultime : il vaut aussi entre le
+    planificateur et une commande lancée à la main.
+    """
+    from apscheduler.schedulers.blocking import BlockingScheduler
+    from apscheduler.triggers.cron import CronTrigger
+
+    planification = args.cron or settings.planification
+    ordonnanceur = BlockingScheduler(timezone=FUSEAU)
+    declenchement = CronTrigger.from_crontab(planification, timezone=FUSEAU)
+
+    ordonnanceur.add_job(lambda: cmd_run(settings, args, log), declenchement,
+                         id="pipeline", name="pipeline EDS",
+                         max_instances=1, coalesce=True, misfire_grace_time=3600)
+
+    for signal_arret in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signal_arret, lambda *_: ordonnanceur.shutdown(wait=False))
+
+    log.info("planificateur démarré",
+             extra={"cron": planification, "fuseau": FUSEAU,
+                    "prochain": str(declenchement.get_next_fire_time(None, datetime.now(ZoneInfo(FUSEAU))))})
+    if args.immediat:
+        log.info("exécution immédiate avant la mise en attente")
+        cmd_run(settings, args, log)
+
+    try:
+        ordonnanceur.start()
+    except (KeyboardInterrupt, SystemExit):
+        log.info("planificateur arrêté")
+    return 0
+
+
 # ─── Contrôles et état ──────────────────────────────────────────────────────
 
 def cmd_acces(settings, args, log) -> int:
@@ -340,8 +434,9 @@ def _table(client, requete: str) -> str:
 # être appelables uniformément depuis cette table ; celles qui n'ont pas
 # d'option n'utilisent pas `args`.
 COMMANDES = {"init": cmd_init, "lake": cmd_lake, "bronze": cmd_bronze,
-             "silver": cmd_silver, "gold": cmd_gold, "acces": cmd_acces,
-             "metabase": cmd_metabase, "status": cmd_status}
+             "silver": cmd_silver, "gold": cmd_gold, "run": cmd_run,
+             "acces": cmd_acces, "metabase": cmd_metabase,
+             "scheduler": cmd_scheduler, "status": cmd_status}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -360,6 +455,18 @@ def main(argv: list[str] | None = None) -> int:
     p_bronze.add_argument("--date", help="ne charger que cette date de dépôt (AAAA-MM-JJ)")
     p_bronze.add_argument("--source", help="ne charger que ce flux")
 
+    p_run = sub.add_parser("run", help="enchaîne lake → bronze → silver → gold")
+    p_run.add_argument("--date", help="ne traiter que cette date de dépôt (AAAA-MM-JJ)")
+    p_run.add_argument("--source", help="ne traiter que ce flux")
+    p_run.add_argument("--force", action="store_true", help="réingérer même si déjà traité")
+    p_run.add_argument("--attendre", action="store_true",
+                       help="patienter si une autre exécution est en cours")
+
+    p_sched = sub.add_parser("scheduler", help="déclenche le pipeline à intervalle régulier")
+    p_sched.add_argument("--cron", help="planification au format cron (défaut : .env)")
+    p_sched.add_argument("--immediat", action="store_true",
+                         help="exécuter une fois au démarrage, avant la mise en attente")
+
     sub.add_parser("silver", help="reconstruit le modèle métier depuis bronze")
     sub.add_parser("gold", help="reconstruit les indicateurs, cloisonnés par usage")
     sub.add_parser("acces", help="crée les comptes cloisonnés et vérifie le cloisonnement")
@@ -367,6 +474,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("status", help="état des dépôts et des dernières exécutions")
 
     args = parser.parse_args(argv)
+    # `run` délègue à des commandes qui lisent --date, --source et --force :
+    # on garantit leur présence pour toutes.
+    for option in ("date", "source", "force", "attendre", "cron", "immediat"):
+        if not hasattr(args, option):
+            setattr(args, option, None if option in ("date", "source", "cron") else False)
 
     try:
         settings = config.load_settings()

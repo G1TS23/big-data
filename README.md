@@ -45,11 +45,20 @@ eds silver                                                   # modèle métier f
 eds gold                                                     # indicateurs, cloisonnés par usage
 eds acces                                                    # comptes + preuve du cloisonnement
 eds metabase                                                 # connexions et tableaux de bord
+eds run                                                      # la chaîne complète, en une commande
 eds status                                                   # état des dépôts et des runs
 ```
 
 - ClickHouse : http://localhost:8123/play
 - Metabase : http://localhost:3000
+
+Le pipeline tourne ensuite **seul** : le service `scheduler` déclenche `eds run`
+selon `EDS_PLANIFICATION` (par défaut chaque nuit à 2 h, heure de Paris).
+
+```bash
+docker compose logs -f scheduler                  # le suivre en direct
+EDS_PLANIFICATION="*/2 * * * *" docker compose up -d scheduler   # accélérer, pour une démonstration
+```
 
 ## Les données ne sont pas dans ce dépôt
 

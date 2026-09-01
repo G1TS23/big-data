@@ -95,7 +95,8 @@ class Execution:
 
     # ── cycle de vie ────────────────────────────────────────────────────────
     def __enter__(self) -> Execution:
-        self.client = sql.connect(self.settings)
+        # Le pipeline peut démarrer pendant que le moteur se relève.
+        self.client = sql.connect(self.settings, tentatives=3)
         self.debut = datetime.now()
         self._ecrire_journal("RUNNING", "")
         return self

@@ -1,0 +1,9 @@
+.venv/
+lake/
+logs/
+.env
+.git/
+docs/
+tests/
+*.pyc
+__pycache__/

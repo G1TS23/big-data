@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Iterable
 from datetime import date, datetime
 from pathlib import Path
@@ -25,10 +26,28 @@ REGLES = ROOT / "config" / "regles.yml"
 
 # ─── Connexion ──────────────────────────────────────────────────────────────
 
-def connect(settings: Settings, **options) -> Client:
-    return clickhouse_connect.get_client(
-        host=settings.ch_host, port=settings.ch_port,
-        username=settings.ch_user, password=settings.ch_password, **options)
+def connect(settings: Settings, tentatives: int = 1, **options) -> Client:
+    """Ouvre une connexion, en réessayant si le moteur n'est pas encore prêt.
+
+    Une exécution planifiée peut démarrer pendant que ClickHouse redémarre.
+    L'attente double à chaque essai : inutile de marteler un service qui se
+    relève. Une seule tentative par défaut — le rappel n'a de sens que pour un
+    pipeline automatique, pas pour un test ni pour une commande interactive.
+    """
+    dernier = None
+    for essai in range(1, tentatives + 1):
+        try:
+            return clickhouse_connect.get_client(
+                host=settings.ch_host, port=settings.ch_port,
+                username=settings.ch_user, password=settings.ch_password, **options)
+        except Exception as exc:                   # noqa: BLE001
+            dernier = exc
+            if essai < tentatives:
+                attente = 2 ** (essai - 1)
+                log.warning("moteur injoignable, nouvelle tentative",
+                            extra={"essai": essai, "sur": tentatives, "attente_s": attente})
+                time.sleep(attente)
+    raise dernier
 
 
 # ─── Découpage des scripts ──────────────────────────────────────────────────

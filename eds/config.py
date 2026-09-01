@@ -32,6 +32,7 @@ class Settings:
     metabase_email: str
     metabase_password: str
     metabase_demo_password: str
+    planification: str
     k_anonymite: int
 
     @property
@@ -80,6 +81,7 @@ def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
         metabase_email=os.getenv("METABASE_ADMIN_EMAIL", ""),
         metabase_password=os.getenv("METABASE_ADMIN_PASSWORD", ""),
         metabase_demo_password=os.getenv("METABASE_DEMO_PASSWORD", ""),
+        planification=os.getenv("EDS_PLANIFICATION", "0 2 * * *"),
         k_anonymite=int(os.getenv("EDS_K_ANONYMITE", "5")),
     )
 

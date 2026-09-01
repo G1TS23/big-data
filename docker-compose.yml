@@ -51,6 +51,40 @@ services:
       retries: 20
       start_period: 90s
 
+  # ─── L'orchestrateur, planifié ────────────────────────────────────────────
+  # Le pipeline tourne seul, sans qu'on tape une commande. Il attend que
+  # ClickHouse soit prêt : un planificateur qui démarre avant son moteur
+  # échouerait à son premier créneau.
+  scheduler:
+    build: .
+    container_name: eds-scheduler
+    restart: unless-stopped
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Vu depuis ce conteneur, ClickHouse porte son nom de service — et non
+      # « localhost », qui désignerait le conteneur lui-même.
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      EDS_SOURCE_PATH: /filestorage
+      EDS_LAKE_PATH: /app/lake
+      # Reprise depuis l'environnement du shell, pour pouvoir accélérer la
+      # cadence le temps d'une démonstration sans toucher au .env :
+      #   EDS_PLANIFICATION="*/1 * * * *" docker compose up -d scheduler
+      EDS_PLANIFICATION: ${EDS_PLANIFICATION:-0 2 * * *}
+    volumes:
+      # Le dépôt du CHU est monté en LECTURE SEULE : le conteneur ne peut pas
+      # altérer la source, même par erreur de programmation.
+      - ${EDS_SOURCE_PATH:-../eds-chu-sujet/source-filestorage}:/filestorage:ro
+      - ./lake:/app/lake
+      - ./logs:/app/logs
+      # Règles et scripts montés depuis le disque : les ajuster ne demande pas
+      # de reconstruire l'image.
+      - ./config:/app/config:ro
+      - ./sql:/app/sql:ro
+
 volumes:
   clickhouse-data:
   clickhouse-logs:

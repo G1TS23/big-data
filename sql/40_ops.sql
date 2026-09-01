@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS ops.ingestion_log
     run_id        String,
     source        LowCardinality(String),
     deposit_date  Date,
+    -- Chemins RELATIFS à leur racine — EDS_SOURCE_PATH et EDS_LAKE_PATH.
+    -- Un chemin absolu enfermerait le journal dans la machine qui l'a écrit :
+    -- le planificateur en conteneur, dont le lake est ailleurs, ne retrouverait
+    -- rien. Le journal dit QUOI a été ingéré, pas où le disque le rangeait ce
+    -- jour-là.
     src_path      String,
     lake_path     String,
     rows_in       UInt64 DEFAULT 0,
