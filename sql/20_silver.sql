@@ -294,9 +294,15 @@ SELECT a.stay_id, s.patient_key, a.code,
        -- Tranches cliniques, définies ICI et nulle part ailleurs. Volontairement
        -- dans le modèle et non en configuration : c'est la granularité de
        -- diffusion de la recherche, pas un réglage.
+       --
+       -- CINQ tranches et non six. L'âge adulte est cliniquement homogène là où
+       -- le grand âge ne l'est pas : 18-64 forme un bloc, tandis que 65-74,
+       -- 75-84 et 85+ restent distincts. Une contrainte de lisibilité s'y
+       -- ajoute — une rampe d'une seule teinte, seul codage sûr pour un axe
+       -- ordonné et pour les daltoniens, n'offre pas assez d'écart de clarté
+       -- pour six pas : le sixième devenait indistinguable du cinquième.
        multiIf(s.age_a_admission < 18, '00-17',
-               s.age_a_admission < 45, '18-44',
-               s.age_a_admission < 65, '45-64',
+               s.age_a_admission < 65, '18-64',
                s.age_a_admission < 75, '65-74',
                s.age_a_admission < 85, '75-84',
                                        '85+') AS tranche_age,

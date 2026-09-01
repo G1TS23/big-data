@@ -15,10 +15,15 @@ couleurs:
   serie_4: "#eda100"   # jaune
 
   # Rampe ORDINALE, pour des séries qui ont un ordre — les tranches d'âge. Une
-  # seule teinte, du clair au foncé : l'œil lit la progression. Six couleurs
-  # distinctes suggéreraient des catégories sans relation d'ordre.
-  # Le pas le plus clair reste au-dessus du plancher de contraste sur fond clair.
-  rampe_age: ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281", "#0d366b"]
+  # seule teinte, du clair au foncé : l'œil lit la progression, et le daltonisme
+  # n'y change rien, puisqu'il affecte la teinte et non la clarté. Des couleurs
+  # distinctes nieraient l'ordre ET perdraient cette propriété.
+  #
+  # CINQ pas, régulièrement espacés d'au moins 0,095 en clarté. À six, l'écart
+  # tombait à 0,047 entre les deux derniers, indistinguables pour quiconque —
+  # la plage utilisable, bornée en haut par le contraste sur fond clair, ne
+  # contient pas six pas séparables.
+  rampe_age: ["#86b6ef", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
 connexions:
   - nom: "EDS — Pilotage"
@@ -109,7 +114,7 @@ tableaux:
       - {sql: rech_pathologie_age.sql, titre: "Description des cohortes — par âge", forme: row,
          description: "Répartition par tranche d'âge, pathologie par pathologie. Âge atteint dans l'année de l'admission, à ±1 an près.",
          empile: true, rampe: rampe_age,
-         series: ["0-17 ans", "18-44 ans", "45-64 ans", "65-74 ans", "75-84 ans", "85 ans et plus"],
+         series: ["0-17 ans", "18-64 ans", "65-74 ans", "75-84 ans", "85 ans et plus"],
          axe_x: "Pathologie", axe_y: "Patients",
          row: 17, col: 0, size_x: 24, size_y: 9}
       - {sql: rech_pathologie_sexe.sql, titre: "Description des cohortes — par sexe", forme: row,

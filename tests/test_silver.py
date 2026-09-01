@@ -142,9 +142,9 @@ class TestDiagnosticsAplatis:
         dans la mauvaise classe."""
         assert scalar(ch, """
             SELECT countIf(d.tranche_age != multiIf(
-                       s.age_a_admission < 18, '00-17', s.age_a_admission < 45, '18-44',
-                       s.age_a_admission < 65, '45-64', s.age_a_admission < 75, '65-74',
-                       s.age_a_admission < 85, '75-84', '85+'))
+                       s.age_a_admission < 18, '00-17', s.age_a_admission < 65, '18-64',
+                       s.age_a_admission < 75, '65-74', s.age_a_admission < 85, '75-84',
+                       '85+'))
             FROM silver.fait_diagnostic AS d
             INNER JOIN silver.fait_sejour AS s ON s.stay_id = d.stay_id""") == 0
 
@@ -158,7 +158,7 @@ class TestDiagnosticsAplatis:
     def test_la_tranche_dage_appartient_a_son_domaine(self, ch):
         tranches = {t for (t,) in ch.query(
             "SELECT DISTINCT tranche_age FROM silver.fait_diagnostic").result_rows}
-        assert tranches <= {"00-17", "18-44", "45-64", "65-74", "75-84", "85+"}
+        assert tranches <= {"00-17", "18-64", "65-74", "75-84", "85+"}
 
     def test_est_principal_suit_le_type(self, ch):
         assert scalar(ch, "SELECT countIf((type_diagnostic = 'principal') != (est_principal = 1)) "
