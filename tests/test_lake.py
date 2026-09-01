@@ -16,7 +16,29 @@ SOURCES = {
         },
         "lake_columns": ["patient_key", "birth_year", "sex", "region_code"],
     },
+    "sejours": {
+        "format": "csv", "path": "sejours/{date}/sejours.csv", "mode": "incremental",
+        "source_columns": ["stay_id", "patient_id", "service_code", "admission_ts",
+                           "discharge_ts", "admission_mode", "discharge_mode"],
+        "privacy": {
+            "hash": [{"from": "patient_id", "to": "patient_key"}],
+            "drop": ["patient_id"],
+        },
+        "lake_columns": ["stay_id", "patient_key", "service_code", "admission_ts",
+                         "discharge_ts", "admission_mode", "discharge_mode"],
+    },
     "diagnostics": {"format": "json", "path": "diagnostics/{date}/diagnostics.json", "mode": "incremental"},
+    "monitoring": {"format": "parquet", "path": "monitoring/{date}/monitoring.parquet",
+                   "mode": "incremental"},
+    "referentiels": {
+        "format": "csv", "mode": "full",
+        "files": [
+            {"path": "referentiels/{date}/services.csv",
+             "source_columns": ["service_code", "service_label"]},
+            {"path": "referentiels/{date}/cim10.csv",
+             "source_columns": ["code_cim10", "libelle"]},
+        ],
+    },
 }
 
 
@@ -30,8 +52,18 @@ class TestDecouverte:
         depots = discover(FIXTURES, SOURCES)
         assert {(d.source, d.deposit_date) for d in depots} == {
             ("patients", "2026-01-01"), ("patients", "2026-01-02"),
-            ("diagnostics", "2026-01-01"),
+            ("sejours", "2026-01-01"), ("diagnostics", "2026-01-01"),
+            ("monitoring", "2026-01-01"),
+            ("referentiels/services", "2026-01-01"),
+            ("referentiels/cim10", "2026-01-01"),
         }
+
+    def test_source_multi_fichiers_donne_un_depot_par_fichier(self):
+        """Les référentiels déclarent deux fichiers sous une seule source :
+        chacun doit être découvert et nommé séparément."""
+        depots = [d for d in discover(FIXTURES, SOURCES) if d.source.startswith("referentiels/")]
+        assert len(depots) == 2
+        assert {d.src_path.name for d in depots} == {"services.csv", "cim10.csv"}
 
 
 class TestCopiePseudonymisee:
@@ -66,6 +98,66 @@ class TestCopieBrute:
         resultat = ingest(depot, tmp_path, SALT)
         assert resultat.status == "OK"
         assert resultat.src_sha256 == resultat.lake_sha256 == sha256_file(depot.src_path)
+
+    def test_fichier_binaire_copie_sans_alteration(self, tmp_path):
+        """Le monitoring arrive en Parquet. Une copie qui passerait par un
+        décodage texte le corromprait silencieusement."""
+        depot = _deposit("monitoring", "2026-01-01")
+        resultat = ingest(depot, tmp_path, SALT)
+        assert resultat.status == "OK"
+        assert resultat.lake_path.read_bytes() == depot.src_path.read_bytes()
+        assert resultat.src_sha256 == resultat.lake_sha256
+
+    def test_le_parquet_reste_lisible_apres_copie(self, tmp_path):
+        """La copie doit rester un Parquet valide, pas seulement des octets
+        identiques : c'est ClickHouse qui le lira ensuite."""
+        import pyarrow.parquet as pq
+        resultat = ingest(_deposit("monitoring", "2026-01-01"), tmp_path, SALT)
+        table = pq.read_table(resultat.lake_path)
+        assert table.num_rows == 6
+        assert table.schema.names == ["stay_id", "ts", "heart_rate", "spo2", "temp_c"]
+
+    def test_les_valeurs_aberrantes_ne_sont_pas_filtrees(self, tmp_path):
+        """Le lake ne corrige rien : la fréquence à 500 doit arriver intacte,
+        c'est la couche silver qui l'écartera, en la traçant."""
+        import pyarrow.parquet as pq
+        resultat = ingest(_deposit("monitoring", "2026-01-01"), tmp_path, SALT)
+        assert 500 in pq.read_table(resultat.lake_path).column("heart_rate").to_pylist()
+
+    def test_referentiel_copie_tel_quel(self, tmp_path):
+        """Une nomenclature ne porte aucune identité : pas de politique de
+        confidentialité, donc copie brute."""
+        depot = _deposit("referentiels/services", "2026-01-01")
+        resultat = ingest(depot, tmp_path, SALT)
+        assert resultat.status == "OK"
+        assert resultat.src_sha256 == resultat.lake_sha256
+
+
+class TestJointureEntreFlux:
+    """La propriété qui fait tenir tout le modèle."""
+
+    def test_meme_patient_meme_cle_dans_les_deux_fichiers(self, tmp_path):
+        """patients.csv et sejours.csv portent le même patient_id en clair.
+        S'ils ne produisaient pas la même clé, la jointure serait rompue et
+        aucun indicateur par patient ne serait calculable."""
+        patients = ingest(_deposit("patients", "2026-01-01"), tmp_path, SALT)
+        sejours = ingest(_deposit("sejours", "2026-01-01"), tmp_path, SALT)
+
+        cles_patients = {r["patient_key"]
+                         for r in csv.DictReader(patients.lake_path.open(encoding="utf-8"))}
+        cles_sejours = {r["patient_key"]
+                        for r in csv.DictReader(sejours.lake_path.open(encoding="utf-8"))}
+
+        assert cles_sejours, "aucune clé côté séjours"
+        assert cles_sejours <= cles_patients, \
+            f"séjours orphelins : {cles_sejours - cles_patients}"
+
+    def test_le_sejour_ne_porte_plus_d_identifiant_en_clair(self, tmp_path):
+        resultat = ingest(_deposit("sejours", "2026-01-01"), tmp_path, SALT)
+        contenu = resultat.lake_path.read_text(encoding="utf-8")
+        assert "IPP9000001" not in contenu
+        entete = next(csv.reader(resultat.lake_path.open(encoding="utf-8")))
+        assert "patient_id" not in entete and "patient_key" in entete
 
 
 class TestQuarantaine:
