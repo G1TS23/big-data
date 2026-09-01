@@ -23,7 +23,7 @@ import urllib3
 
 from eds.config import Settings
 
-log = logging.getLogger("eds.loader")
+log = logging.getLogger("eds.bronze")
 
 _http = urllib3.PoolManager()
 

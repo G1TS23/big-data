@@ -15,12 +15,14 @@ import logging
 
 from eds import sql
 
+log = logging.getLogger("eds.silver")
+
 SCRIPTS = ["20_silver.sql"]
 
 
-def construire(run, log: logging.Logger) -> None:
+def construire(run) -> None:
     """Reconstruit intégralement la couche, puis rend compte."""
-    parametres = sql.executer_avec_regles(run, SCRIPTS, log)
+    parametres = sql.executer_avec_regles(run, SCRIPTS)
     log.info("règles appliquées", extra={"run_id": run.run_id, **parametres})
 
     for nom, lignes in run.client.query(

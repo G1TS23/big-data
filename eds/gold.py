@@ -15,16 +15,18 @@ import logging
 
 from eds import sql
 
+log = logging.getLogger("eds.gold")
+
 SCRIPTS = ["30_gold_pilotage.sql", "31_gold_recherche.sql"]
 
 BASES = ("gold_pilotage", "gold_recherche")
 
 
-def construire(run, log: logging.Logger) -> None:
+def construire(run) -> None:
     # L'exécution porte déjà la configuration : inutile de la repasser.
     substitutions = {"K_ANONYMITE": sql.to_parameters(sql.load_regles())["k"],
                      "DEFINER": run.settings.ch_user}
-    sql.executer_avec_regles(run, SCRIPTS, log, substitutions)
+    sql.executer_avec_regles(run, SCRIPTS, substitutions)
 
     for base in BASES:
         for nom, moteur in run.client.query(

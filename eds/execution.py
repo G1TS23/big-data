@@ -7,7 +7,7 @@ redite, qui noyaient la logique métier de chaque commande.
 
 Tout cela vit ici. Une commande se réduit désormais à ce qu'elle fait vraiment :
 
-    with Execution(settings, "lake", "dépôt", log) as run:
+    with Execution(settings, "lake", "dépôt") as run:
         for depot in depots:
             with run.etape(f"{depot.source}/{depot.date}"):
                 ...
@@ -26,6 +26,8 @@ from pathlib import Path
 
 from eds import sql
 from eds.config import Settings
+
+log = logging.getLogger("eds.execution")
 
 _RESERVE = set(logging.LogRecord("", 0, "", 0, "", (), None).__dict__) | {"message", "asctime"}
 
@@ -85,8 +87,8 @@ class Execution:
     éternellement « RUNNING ».
     """
 
-    def __init__(self, settings: Settings, commande: str, unite: str, log: logging.Logger):
-        self.settings, self.commande, self.unite, self.log = settings, commande, unite, log
+    def __init__(self, settings: Settings, commande: str, unite: str):
+        self.settings, self.commande, self.unite = settings, commande, unite
         self.run_id = uuid.uuid4().hex
         self.vus = self.traites = self.ignores = self.quarantaine = 0
         self.incidents: list[str] = []
@@ -109,9 +111,9 @@ class Execution:
         try:
             self._ecrire_journal(self.statut, " | ".join(self.incidents)[:2000])
         except Exception:                          # noqa: BLE001
-            self.log.error("exécution non clôturée", exc_info=True,
+            log.error("exécution non clôturée", exc_info=True,
                            extra={"run_id": self.run_id})
-        self.log.info("run terminé", extra={"run_id": self.run_id, "statut": self.statut,
+        log.info("run terminé", extra={"run_id": self.run_id, "statut": self.statut,
                                             "vus": self.vus, "traites": self.traites,
                                             "ignores": self.ignores,
                                             "quarantaine": self.quarantaine})
@@ -141,7 +143,7 @@ class Execution:
             yield
         except Exception as exc:                   # noqa: BLE001
             self.incidents.append(f"{quoi} : {exc}")
-            self.log.error("échec", exc_info=True, extra={"element": quoi})
+            log.error("échec", exc_info=True, extra={"element": quoi})
 
     def journaliser(self, table: str, colonnes: list[str], ligne: list) -> None:
         """Accumule une ligne de journal métier, écrite à la clôture."""
@@ -164,6 +166,6 @@ class Execution:
             try:
                 self.client.insert(table, lignes, column_names=colonnes)
             except Exception:                      # noqa: BLE001
-                self.log.error("journal métier non écrit", exc_info=True,
+                log.error("journal métier non écrit", exc_info=True,
                                extra={"table": table, "run_id": self.run_id})
                 self.incidents.append(f"{table} non écrit")

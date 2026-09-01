@@ -158,7 +158,7 @@ def run_script(client: Client, chemin: Path, run_id: str, parametres: dict,
     return len(instructions)
 
 
-def executer_avec_regles(run, scripts: list[str], log, substitutions: dict | None = None) -> dict:
+def executer_avec_regles(run, scripts: list[str], substitutions: dict | None = None) -> dict:
     """Joue des scripts avec les règles métier, et consigne lesquelles.
 
     Les valeurs appliquées sont inscrites dans ops.parametres : un indicateur

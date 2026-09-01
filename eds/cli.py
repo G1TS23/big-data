@@ -74,7 +74,7 @@ def cmd_init(settings, args, log) -> int:
 
 def cmd_lake(settings, args, log) -> int:
     """Recopie les dépôts du CHU dans le lake, pseudonymisés à la porte."""
-    with Execution(settings, "lake", "dépôt", log) as run:
+    with Execution(settings, "lake", "dépôt") as run:
         depots = lake.discover(settings.source_path, config.load_sources())
         if args.date:
             depots = [d for d in depots if d.deposit_date == args.date]
@@ -130,7 +130,7 @@ def cmd_lake(settings, args, log) -> int:
 
 def cmd_bronze(settings, args, log) -> int:
     """Charge dans bronze les dépôts que le lake contient réellement."""
-    with Execution(settings, "bronze", "dépôt", log) as run:
+    with Execution(settings, "bronze", "dépôt") as run:
         cibles = {spec["_name"]: spec["bronze"]
                   for nom, source in config.load_sources().items()
                   for spec in lake._file_specs(nom, source) if "bronze" in spec}
@@ -188,15 +188,15 @@ def cmd_bronze(settings, args, log) -> int:
 
 def cmd_silver(settings, args, log) -> int:
     """Reconstruit la couche silver depuis bronze, en SQL."""
-    with Execution(settings, "silver", "instruction", log) as run:
-        silver.construire(run, log)
+    with Execution(settings, "silver", "instruction") as run:
+        silver.construire(run)
     return run.code_retour
 
 
 def cmd_gold(settings, args, log) -> int:
     """Reconstruit les deux couches gold, cloisonnées par usage."""
-    with Execution(settings, "gold", "instruction", log) as run:
-        gold.construire(run, log)
+    with Execution(settings, "gold", "instruction") as run:
+        gold.construire(run)
     return run.code_retour
 
 
@@ -204,7 +204,7 @@ def cmd_gold(settings, args, log) -> int:
 
 def cmd_metabase(settings, args, log) -> int:
     """Provisionne la restitution : connexions, cloisonnement, tableaux de bord."""
-    with Execution(settings, "metabase", "carte", log) as run:
+    with Execution(settings, "metabase", "carte") as run:
         spec = metabase.charger_specification()
         mb = metabase.Metabase(settings)
         mb.connect()
