@@ -111,8 +111,7 @@ class Execution:
         try:
             self._ecrire_journal(self.statut, " | ".join(self.incidents)[:2000])
         except Exception:                          # noqa: BLE001
-            log.error("exécution non clôturée", exc_info=True,
-                           extra={"run_id": self.run_id})
+            log.exception("exécution non clôturée", extra={"run_id": self.run_id})
         log.info("run terminé", extra={"run_id": self.run_id, "statut": self.statut,
                                             "vus": self.vus, "traites": self.traites,
                                             "ignores": self.ignores,
@@ -143,7 +142,7 @@ class Execution:
             yield
         except Exception as exc:                   # noqa: BLE001
             self.incidents.append(f"{quoi} : {exc}")
-            log.error("échec", exc_info=True, extra={"element": quoi})
+            log.exception("échec", extra={"element": quoi})
 
     def journaliser(self, table: str, colonnes: list[str], ligne: list) -> None:
         """Accumule une ligne de journal métier, écrite à la clôture."""
@@ -166,6 +165,6 @@ class Execution:
             try:
                 self.client.insert(table, lignes, column_names=colonnes)
             except Exception:                      # noqa: BLE001
-                log.error("journal métier non écrit", exc_info=True,
-                               extra={"table": table, "run_id": self.run_id})
+                log.exception("journal métier non écrit",
+                              extra={"table": table, "run_id": self.run_id})
                 self.incidents.append(f"{table} non écrit")

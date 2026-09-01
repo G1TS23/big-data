@@ -28,12 +28,23 @@ class Settings:
     ch_recherche_password: str
     ch_exploitation_password: str
     ch_docker_host: str
+    ch_secure: bool
     metabase_url: str
     metabase_email: str
     metabase_password: str
     metabase_demo_password: str
     planification: str
     k_anonymite: int
+
+    @property
+    def ch_scheme(self) -> str:
+        """« https » dès que la connexion est chiffrée.
+
+        En local, ClickHouse écoute en clair sur la boucle locale. Sur un moteur
+        managé, il faut TLS — et le passage se fait alors par le seul .env,
+        sans toucher au code.
+        """
+        return "https" if self.ch_secure else "http"
 
     @property
     def quarantine_path(self) -> Path:
@@ -77,6 +88,7 @@ def load_settings(env_file: str | os.PathLike[str] | None = None) -> Settings:
         ch_recherche_password=os.getenv("CLICKHOUSE_RECHERCHE_PASSWORD", ""),
         ch_exploitation_password=os.getenv("CLICKHOUSE_EXPLOITATION_PASSWORD", ""),
         ch_docker_host=os.getenv("CLICKHOUSE_DOCKER_HOST", "clickhouse"),
+        ch_secure=os.getenv("CLICKHOUSE_SECURE", "false").lower() in ("1", "true", "oui"),
         metabase_url=os.getenv("METABASE_URL", "http://localhost:3000").rstrip("/"),
         metabase_email=os.getenv("METABASE_ADMIN_EMAIL", ""),
         metabase_password=os.getenv("METABASE_ADMIN_PASSWORD", ""),

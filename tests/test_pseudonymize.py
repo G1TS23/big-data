@@ -7,8 +7,19 @@ from tests.conftest import SALT
 
 class TestPseudonymize:
     def test_deterministe(self):
-        """Sans cela, les jointures patients ↔ séjours ne tiendraient pas."""
-        assert pseudonymize("IPP0000001", SALT) == pseudonymize("IPP0000001", SALT)
+        """Le pseudonyme d'un identifiant donné est figé.
+
+        La valeur attendue est écrite en dur, et non recalculée par un second
+        appel : comparer la fonction à elle-même passerait même si elle rendait
+        une constante. Ancrer l'empreinte protège aussi l'ALGORITHME — remplacer
+        HMAC par un simple hachage salé casserait ce test, alors qu'il resterait
+        « déterministe ».
+
+        Changer cette valeur revient à rompre la continuité des pseudonymes :
+        toutes les jointures avec les données déjà chargées deviendraient
+        invalides.
+        """
+        assert pseudonymize("IPP0000001", SALT) == "5cfacbf7a730e23a5fb695723e100d26"
 
     def test_sels_differents_pseudonymes_differents(self):
         assert pseudonymize("IPP0000001", SALT) != pseudonymize("IPP0000001", SALT + "x")

@@ -16,7 +16,8 @@ class TestReglagesDuProjet:
         """Résolus au chargement : une commande lancée depuis un autre
         répertoire doit trouver les mêmes fichiers."""
         s = load_settings()
-        assert s.source_path.is_absolute() and s.lake_path.is_absolute()
+        assert s.source_path.is_absolute()
+        assert s.lake_path.is_absolute()
 
     def test_le_depot_du_chu_existe(self):
         assert load_settings().source_path.is_dir()

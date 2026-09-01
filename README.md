@@ -99,6 +99,9 @@ La suite de tests, elle, tourne sans ces données : `tests/fixtures/` contient d
 | Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → chemin du fichier source, taille, date de dépôt et horodatage |
 | Reprise sur incident | écriture sous nom provisoire puis renommage atomique : à son emplacement définitif, un fichier est toujours complet |
 | Garde-fou outillé | `.githooks/pre-commit` refuse tout commit contenant un NIR ou une zone de données |
+| Liaison chiffrée | `CLICKHOUSE_SECURE=true` bascule en TLS ; le passage à un moteur managé ne touche pas au code |
+| Conteneur sans privilèges | l'orchestrateur tourne sous un compte dédié, jamais en root |
+| Dépendances figées | `requirements.lock` épingle les versions résolues, pour que deux constructions donnent la même image |
 
 Le sel (`EDS_SALT`) n'est pas versionné : une réinstallation produit des pseudonymes
 différents des nôtres. C'est le comportement attendu — voir `docs/EXPLOITATION.md`.

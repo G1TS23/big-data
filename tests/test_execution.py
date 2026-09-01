@@ -33,24 +33,36 @@ class TestCloture:
             run.traites = 3
             identifiant = run.run_id
         statut, close, _ = dernier_run(run.client, identifiant)
-        assert statut == "OK" and close
+        assert statut == "OK"
+        assert close, "exécution restée ouverte"
 
     def test_une_exception_ne_laisse_pas_l_execution_ouverte(self, settings):
         """Sans cela, un incident laisserait une ligne RUNNING pour toujours,
         et `eds status` la signalerait indéfiniment."""
-        with pytest.raises(ValueError):
-            with Execution(settings, "test", "dépôt") as run:
-                identifiant = run.run_id
+        def echouer():
+            with Execution(settings, "test", "dépôt") as execution:
+                identifiants.append(execution.run_id)
                 raise ValueError("incident simulé")
+
+        identifiants: list[str] = []
+        with pytest.raises(ValueError):
+            echouer()
+        identifiant = identifiants[0]
+        run = Execution(settings, "test", "dépôt")
+        run.client = sql.connect(settings)
         statut, close, message = dernier_run(run.client, identifiant)
-        assert statut == "FAILED" and close
+        assert statut == "FAILED"
+        assert close, "exécution restée ouverte"
         assert "incident simulé" in message
 
     def test_l_exception_poursuit_sa_route(self, settings):
         """Le gestionnaire journalise, il n'avale pas."""
-        with pytest.raises(RuntimeError, match="doit remonter"):
+        def echouer():
             with Execution(settings, "test", "dépôt"):
                 raise RuntimeError("doit remonter")
+
+        with pytest.raises(RuntimeError, match="doit remonter"):
+            echouer()
 
 
 class TestStatut:

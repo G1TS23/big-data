@@ -39,7 +39,8 @@ def connect(settings: Settings, tentatives: int = 1, **options) -> Client:
         try:
             return clickhouse_connect.get_client(
                 host=settings.ch_host, port=settings.ch_port,
-                username=settings.ch_user, password=settings.ch_password, **options)
+                username=settings.ch_user, password=settings.ch_password,
+                secure=settings.ch_secure, **options)
         except Exception as exc:                   # noqa: BLE001
             dernier = exc
             if essai < tentatives:

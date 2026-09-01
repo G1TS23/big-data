@@ -84,7 +84,9 @@ def drop_partition(client, table: str, deposit_date: str) -> None:
 def load_file(settings: Settings, bronze: dict, lake_file: Path,
               deposit_date: str, run_id: str) -> LoadResult:
     """Pousse un fichier du lake vers sa table bronze, en flux."""
-    url = f"http://{settings.ch_host}:{settings.ch_port}/?" + urlencode({
+    # Le schéma vient de la configuration : chiffré sur un moteur managé,
+    # en clair sur la boucle locale.
+    url = f"{settings.ch_scheme}://{settings.ch_host}:{settings.ch_port}/?" + urlencode({
         "user": settings.ch_user,
         "password": settings.ch_password,
         "query": build_insert(bronze),

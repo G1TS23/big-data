@@ -12,7 +12,7 @@ pas dans requirements.txt, que le pipeline seul renseigne.
 """
 from __future__ import annotations
 
-import sys
+import argparse
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -45,10 +45,9 @@ def _couleur(ligne: str) -> tuple[int, int, int]:
     return C["ink"]
 
 
-def rendre(source: Path, sortie: Path, invite: str, titre: str,
+def rendre(sortie: Path, invite: str, titre: str,
            colonnes: list[tuple[str, list[str]]], pied: str) -> None:
     regulier, gras, petit = _polices()
-    avance = regulier.getlength("M")
 
     largeurs = [max(regulier.getlength(l) for l in lignes) for _, lignes in colonnes]
     hauteur_max = max(len(lignes) for _, lignes in colonnes)
@@ -93,8 +92,39 @@ def rendre(source: Path, sortie: Path, invite: str, titre: str,
     print(f"{sortie}  {largeur}×{hauteur} px")
 
 
+PROJET = Path(__file__).resolve().parent.parent.parent
+EXTENSIONS = {".png", ".jpg", ".webp"}
+
+
+def _chemin_sous_le_projet(brut: str, doit_exister: bool) -> Path:
+    """Résout un chemin et refuse tout ce qui sort du projet.
+
+    L'outil reçoit ses chemins en ligne de commande et ÉCRIT à la destination
+    demandée. Sans borne, « ../../.ssh/config » comme destination écraserait un
+    fichier hors du dépôt. On résout donc les liens et les « .. » avant de
+    vérifier que le résultat reste sous la racine du projet.
+    """
+    chemin = Path(brut).resolve()
+    try:
+        chemin.relative_to(PROJET)
+    except ValueError:
+        raise SystemExit(f"chemin hors du projet, refusé : {chemin}") from None
+    if doit_exister and not chemin.is_file():
+        raise SystemExit(f"fichier introuvable : {chemin}")
+    if not doit_exister and chemin.suffix.lower() not in EXTENSIONS:
+        raise SystemExit(f"extension inattendue pour une image : {chemin.suffix or 'aucune'}")
+    return chemin
+
+
 def main() -> None:
-    source, sortie = Path(sys.argv[1]), Path(sys.argv[2])
+    analyseur = argparse.ArgumentParser(
+        description="Met en page la sortie d'une commande eds pour le dossier.")
+    analyseur.add_argument("source", help="fichier contenant la sortie capturée")
+    analyseur.add_argument("sortie", help="image à produire, sous docs/img/")
+    arguments = analyseur.parse_args()
+
+    source = _chemin_sous_le_projet(arguments.source, doit_exister=True)
+    sortie = _chemin_sous_le_projet(arguments.sortie, doit_exister=False)
     brut = source.read_text(encoding="utf-8").rstrip("\n").split("\n")
 
     # La sortie de `eds acces` comporte deux tableaux : moteur, puis restitution.
@@ -106,7 +136,7 @@ def main() -> None:
                  garder(brut[debuts[1]:]))]
     pied = next(l for l in brut if "cloisonnement vérifié" in l).rstrip()
 
-    rendre(source, sortie,
+    rendre(sortie,
            invite="olivier@chu ~/bigdata/projet (.venv) $ eds acces",
            titre="eds — démonstration du cloisonnement des droits",
            colonnes=colonnes, pied=pied)

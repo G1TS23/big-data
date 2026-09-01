@@ -341,7 +341,11 @@ def cmd_scheduler(settings, args, log) -> int:
     try:
         ordonnanceur.start()
     except (KeyboardInterrupt, SystemExit):
+        # On journalise l'arrêt, puis on laisse l'interruption suivre son cours :
+        # l'avaler ferait croire à une fin normale alors que l'opérateur a
+        # demandé l'arrêt.
         log.info("planificateur arrêté")
+        raise
     return 0
 
 
