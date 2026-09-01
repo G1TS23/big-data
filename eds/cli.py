@@ -29,29 +29,28 @@ ROOT = Path(__file__).resolve().parent.parent
 SQL_DIR = ROOT / "sql"
 
 
-def _open_run(client, run_id: str, command: str) -> datetime:
+_COLONNES_RUN = ["run_id", "command", "started_at", "finished_at", "status",
+                 "unite", "objets_vus", "objets_traites", "objets_ignores",
+                 "objets_quarantaine", "message", "updated_at"]
+
+
+def _open_run(client, run_id: str, command: str, unite: str) -> datetime:
+    """Ouvre une exécution. `unite` dit ce que ses compteurs dénombreront."""
     started = datetime.now()
-    client.insert(
-        "ops.run_log",
-        [[run_id, command, started, None, "RUNNING", 0, 0, 0, 0, "", datetime.now()]],
-        column_names=["run_id", "command", "started_at", "finished_at", "status",
-                      "deposits_seen", "deposits_ingested", "deposits_skipped",
-                      "deposits_quarantined", "message", "updated_at"],
-    )
+    client.insert("ops.run_log",
+                  [[run_id, command, started, None, "RUNNING", unite,
+                    0, 0, 0, 0, "", datetime.now()]],
+                  column_names=_COLONNES_RUN)
     return started
 
 
-def _close_run(client, run_id, command, started, status, counts, message=""):
-    client.insert(
-        "ops.run_log",
-        [[run_id, command, started, datetime.now(), status,
-          counts.get("seen", 0), counts.get("ingested", 0),
-          counts.get("skipped", 0), counts.get("quarantined", 0),
-          message[:2000], datetime.now()]],
-        column_names=["run_id", "command", "started_at", "finished_at", "status",
-                      "deposits_seen", "deposits_ingested", "deposits_skipped",
-                      "deposits_quarantined", "message", "updated_at"],
-    )
+def _close_run(client, run_id, command, started, status, unite, counts, message=""):
+    client.insert("ops.run_log",
+                  [[run_id, command, started, datetime.now(), status, unite,
+                    counts.get("vus", 0), counts.get("traites", 0),
+                    counts.get("ignores", 0), counts.get("quarantaine", 0),
+                    message[:2000], datetime.now()]],
+                  column_names=_COLONNES_RUN)
 
 
 # Les scripts sont joués dans cet ordre : la traçabilité existe avant la donnée.
@@ -74,9 +73,9 @@ def cmd_init(settings, args, log) -> int:
 def cmd_lake(settings, args, log) -> int:
     client = db.connect(settings)
     run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "lake")
+    started = _open_run(client, run_id, "lake", "dépôt")
 
-    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
     rows: list[list] = []
     failures: list[str] = []
     status = "FAILED"
@@ -89,14 +88,14 @@ def cmd_lake(settings, args, log) -> int:
         if args.source:
             deposits = [d for d in deposits if d.source.split("/", 1)[0] == args.source]
 
-        counts["seen"] = len(deposits)
+        counts["vus"] = len(deposits)
         log.info("dépôts à examiner", extra={"run_id": run_id, "nb": len(deposits)})
 
         for dep in deposits:
             try:
                 src_sha = lake.sha256_file(dep.src_path)
                 if not args.force and db.already_ingested(client, dep.source, dep.deposit_date, src_sha):
-                    counts["skipped"] += 1
+                    counts["ignores"] += 1
                     log.info("déjà ingéré, ignoré",
                              extra={"source": dep.source, "date": dep.deposit_date})
                     continue
@@ -104,11 +103,11 @@ def cmd_lake(settings, args, log) -> int:
                 result = lake.ingest(dep, settings.lake_path, settings.salt)
 
                 if result.status == "QUARANTINE":
-                    counts["quarantined"] += 1
+                    counts["quarantaine"] += 1
                     log.warning("mis en quarantaine", extra={"source": dep.source,
                                 "date": dep.deposit_date, "motif": result.reason})
                 else:
-                    counts["ingested"] += 1
+                    counts["traites"] += 1
                     log.info("ingéré", extra={"source": dep.source, "date": dep.deposit_date,
                              "lignes": result.rows_out or "-", "octets": result.bytes_in})
 
@@ -124,8 +123,8 @@ def cmd_lake(settings, args, log) -> int:
                 log.error("échec du dépôt", exc_info=True,
                           extra={"source": dep.source, "date": dep.deposit_date})
 
-        status = ("FAILED" if failures and not counts["ingested"]
-                  else "PARTIAL" if failures or counts["quarantined"]
+        status = ("FAILED" if failures and not counts["traites"]
+                  else "PARTIAL" if failures or counts["quarantaine"]
                   else "OK")
         return 1 if status == "FAILED" else 0
 
@@ -147,7 +146,7 @@ def cmd_lake(settings, args, log) -> int:
             failures.append("journal d'ingestion non écrit")
             status = "FAILED"
         try:
-            _close_run(client, run_id, "lake", started, status, counts, " | ".join(failures))
+            _close_run(client, run_id, "lake", started, status, "dépôt", counts, " | ".join(failures))
         except Exception:                         # noqa: BLE001
             log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
         log.info("run terminé", extra={"run_id": run_id, "statut": status, **counts})
@@ -157,9 +156,9 @@ def cmd_bronze(settings, args, log) -> int:
     """Charge dans bronze les dépôts présents dans le lake."""
     client = db.connect(settings)
     run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "bronze")
+    started = _open_run(client, run_id, "bronze", "dépôt")
 
-    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
     rows: list[list] = []
     failures: list[str] = []
     status = "FAILED"
@@ -186,13 +185,13 @@ def cmd_bronze(settings, args, log) -> int:
         query += "GROUP BY source, deposit_date ORDER BY deposit_date, source"
 
         deposits = client.query(query, parameters=params).result_rows
-        counts["seen"] = len(deposits)
+        counts["vus"] = len(deposits)
         log.info("dépôts à charger", extra={"run_id": run_id, "nb": len(deposits)})
 
         for source, deposit_date, lake_path in deposits:
             bronze = specs.get(source)
             if bronze is None:
-                counts["skipped"] += 1
+                counts["ignores"] += 1
                 log.warning("aucune cible bronze déclarée", extra={"source": source})
                 continue
             try:
@@ -200,7 +199,7 @@ def cmd_bronze(settings, args, log) -> int:
                 loader.drop_partition(client, bronze["table"], deposit_date)
                 result = loader.load_file(settings, bronze, Path(lake_path),
                                           deposit_date, run_id)
-                counts["ingested"] += 1
+                counts["traites"] += 1
                 log.info("chargé", extra={"source": source, "date": deposit_date,
                          "table": result.table, "lignes": result.rows_loaded,
                          "ms": result.duration_ms})
@@ -216,8 +215,8 @@ def cmd_bronze(settings, args, log) -> int:
                              bronze["table"], lake_path, 0, 0, 0, "FAILED",
                              str(exc)[:1000], datetime.now()])
 
-        status = ("FAILED" if failures and not counts["ingested"]
-                  else "PARTIAL" if failures or counts["skipped"]
+        status = ("FAILED" if failures and not counts["traites"]
+                  else "PARTIAL" if failures or counts["ignores"]
                   else "OK")
         return 1 if status == "FAILED" else 0
 
@@ -236,7 +235,7 @@ def cmd_bronze(settings, args, log) -> int:
             log.error("journal de chargement non écrit", exc_info=True,
                       extra={"run_id": run_id})
         try:
-            _close_run(client, run_id, "bronze", started, status, counts,
+            _close_run(client, run_id, "bronze", started, status, "dépôt", counts,
                        " | ".join(failures))
         except Exception:                         # noqa: BLE001
             log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
@@ -247,8 +246,8 @@ def cmd_silver(settings, args, log) -> int:
     """Reconstruit la couche silver depuis bronze, en SQL."""
     client = db.connect(settings)
     run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "silver")
-    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    started = _open_run(client, run_id, "silver", "instruction")
+    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
     status, message = "FAILED", ""
 
     try:
@@ -258,8 +257,8 @@ def cmd_silver(settings, args, log) -> int:
         log.info("règles appliquées", extra={"run_id": run_id, **parameters})
 
         n = transform.run_script(client, SQL_DIR / "20_silver.sql", run_id, parameters)
-        counts["ingested"] = n
-        counts["seen"] = n
+        counts["traites"] = n
+        counts["vus"] = n
 
         tables = client.query(
             "SELECT name, total_rows FROM system.tables "
@@ -284,7 +283,7 @@ def cmd_silver(settings, args, log) -> int:
 
     finally:
         try:
-            _close_run(client, run_id, "silver", started, status, counts, message)
+            _close_run(client, run_id, "silver", started, status, "instruction", counts, message)
         except Exception:                         # noqa: BLE001
             log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
         log.info("run terminé", extra={"run_id": run_id, "statut": status})
@@ -294,8 +293,8 @@ def cmd_gold(settings, args, log) -> int:
     """Reconstruit les deux couches gold, cloisonnées par usage."""
     client = db.connect(settings)
     run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "gold")
-    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    started = _open_run(client, run_id, "gold", "instruction")
+    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
     status, message = "FAILED", ""
 
     try:
@@ -310,7 +309,7 @@ def cmd_gold(settings, args, log) -> int:
         for script in ("30_gold_pilotage.sql", "31_gold_recherche.sql"):
             n = transform.run_script(client, SQL_DIR / script, run_id,
                                      parameters, substitutions)
-            counts["ingested"] += n
+            counts["traites"] += n
             log.info("script exécuté", extra={"fichier": script, "instructions": n})
 
         for base in ("gold_pilotage", "gold_recherche"):
@@ -320,7 +319,7 @@ def cmd_gold(settings, args, log) -> int:
             for name, engine in objets:
                 log.info("objet gold", extra={"objet": f"{base}.{name}", "type": engine})
 
-        counts["seen"] = counts["ingested"]
+        counts["vus"] = counts["traites"]
         status = "OK"
         return 0
 
@@ -329,7 +328,7 @@ def cmd_gold(settings, args, log) -> int:
         raise
     finally:
         try:
-            _close_run(client, run_id, "gold", started, status, counts, message)
+            _close_run(client, run_id, "gold", started, status, "instruction", counts, message)
         except Exception:                         # noqa: BLE001
             log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
         log.info("run terminé", extra={"run_id": run_id, "statut": status})
@@ -384,8 +383,8 @@ def cmd_metabase(settings, args, log) -> int:
 
     client = db.connect(settings)
     run_id = uuid.uuid4().hex
-    started = _open_run(client, run_id, "metabase")
-    counts = {"seen": 0, "ingested": 0, "skipped": 0, "quarantined": 0}
+    started = _open_run(client, run_id, "metabase", "carte")
+    counts = {"vus": 0, "traites": 0, "ignores": 0, "quarantaine": 0}
     status, message = "FAILED", ""
 
     try:
@@ -428,7 +427,7 @@ def cmd_metabase(settings, args, log) -> int:
                                "size_x": carte["size_x"], "size_y": carte["size_y"],
                                "series": [], "parameter_mappings": [],
                                "visualization_settings": {}})
-                counts["ingested"] += 1
+                counts["traites"] += 1
 
             dashboard_id = mb.ensure_dashboard(tableau["nom"], tableau["description"],
                                                collection_id)
@@ -454,7 +453,7 @@ def cmd_metabase(settings, args, log) -> int:
             log.info("compte de démonstration", extra={"email": demo["email"],
                      "groupe": connexion["groupe"]})
 
-        counts["seen"] = counts["ingested"]
+        counts["vus"] = counts["traites"]
         status = "OK"
         return 0
 
@@ -463,7 +462,7 @@ def cmd_metabase(settings, args, log) -> int:
         raise
     finally:
         try:
-            _close_run(client, run_id, "metabase", started, status, counts, message)
+            _close_run(client, run_id, "metabase", started, status, "carte", counts, message)
         except Exception:                         # noqa: BLE001
             log.error("run non clôturé", exc_info=True, extra={"run_id": run_id})
         log.info("run terminé", extra={"run_id": run_id, "statut": status})
@@ -476,8 +475,9 @@ def cmd_status(settings, args, log) -> int:
     print(_table(client, """
         SELECT substring(run_id, 1, 8) AS run, command AS commande,
                toString(started_at) AS debut, toString(status) AS statut,
-               deposits_ingested AS ingeres, deposits_skipped AS ignores,
-               deposits_quarantined AS quarantaine
+               concat(toString(objets_traites), ' ', toString(unite),
+                      if(objets_traites > 1, 's', '')) AS traites,
+               objets_ignores AS ignores, objets_quarantaine AS quarantaine
         FROM ops.run_log FINAL ORDER BY started_at DESC LIMIT 5"""))
 
     print("\nÉtat par dépôt (dernière ingestion connue)")

@@ -7,6 +7,11 @@
 CREATE DATABASE IF NOT EXISTS ops;
 
 -- Un enregistrement par exécution de l'orchestrateur.
+--
+-- Les étapes ne traitent pas la même matière : `lake` et `bronze` comptent des
+-- dépôts, `silver` et `gold` des instructions SQL, `metabase` des cartes. La
+-- colonne `unite` dit ce que les compteurs dénombrent — sans elle, « 28 traités »
+-- sur une exécution de gold laisserait croire à vingt-huit fichiers.
 CREATE TABLE IF NOT EXISTS ops.run_log
 (
     run_id        String,
@@ -14,10 +19,11 @@ CREATE TABLE IF NOT EXISTS ops.run_log
     started_at    DateTime64(3, 'Europe/Paris'),
     finished_at   Nullable(DateTime64(3, 'Europe/Paris')),
     status        Enum8('RUNNING' = 1, 'OK' = 2, 'PARTIAL' = 3, 'FAILED' = 4),
-    deposits_seen      UInt32 DEFAULT 0,
-    deposits_ingested  UInt32 DEFAULT 0,
-    deposits_skipped   UInt32 DEFAULT 0,
-    deposits_quarantined UInt32 DEFAULT 0,
+    unite         Enum8('dépôt' = 1, 'instruction' = 2, 'carte' = 3),
+    objets_vus         UInt32 DEFAULT 0,
+    objets_traites     UInt32 DEFAULT 0,
+    objets_ignores     UInt32 DEFAULT 0,
+    objets_quarantaine UInt32 DEFAULT 0,
     message       String DEFAULT '',
     -- Version de la ligne : un run est inséré à l'ouverture puis réinséré à la
     -- clôture. ReplacingMergeTree ne conserve que la version la plus récente.
