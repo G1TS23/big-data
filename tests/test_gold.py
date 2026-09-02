@@ -266,3 +266,28 @@ class TestPartAlerteParService:
     def test_la_ligne_aucune_ne_compte_aucune_alerte(self, ch):
         assert scalar(ch, "SELECT sum(releves_alerte) FROM gold_pilotage.kpi_alertes_jour "
                           "WHERE motif_alerte = 'aucune'") == 0
+
+
+class TestVolumetrieDeLExploitation:
+    """La carte de volumétrie doit refléter l'état, pas l'historique.
+
+    Bronze efface la partition du jour avant de la recharger : un dépôt
+    rechargé vingt fois n'a qu'un seul contenu. Sommer les chargements
+    successifs multipliait la volumétrie par le nombre d'exécutions, sans
+    qu'aucune erreur ne se lève.
+    """
+
+    @staticmethod
+    def volumetrie(ch, source):
+        return scalar(ch, "SELECT sum(dernier) FROM (SELECT argMax(rows_loaded, loaded_at) "
+                          "AS dernier FROM ops.load_log WHERE status = 'OK' "
+                          "AND source = {s:String} GROUP BY deposit_date)", s=source)
+
+    @pytest.mark.parametrize("source,table", [
+        ("sejours", "bronze.sejours"),
+        ("monitoring", "bronze.monitoring"),
+        ("diagnostics", "bronze.diagnostics"),
+        ("actes", "bronze.actes"),
+    ])
+    def test_la_volumetrie_egale_le_contenu_de_bronze(self, ch, source, table):
+        assert self.volumetrie(ch, source) == scalar(ch, f"SELECT count() FROM {table}")

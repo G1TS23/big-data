@@ -321,6 +321,18 @@ foncé : l'ordre se lit dans la clarté, ce qu'aucun daltonisme n'altère.
 
 ![Cohortes par sexe, durées et comorbidités](img/tdb-recherche-2.png)
 
+### Exploitation du pipeline
+
+Le tableau que personne ne regarde quand tout va bien, et le seul qui compte
+quand quelque chose casse.
+
+![Tableau de bord Exploitation](img/tdb-exploitation.png)
+
+On y lit la fraîcheur des données, les dernières exécutions avec leur statut et
+leurs compteurs, les deux règles de rejet et les onze signalements. Deux d'entre
+eux valent zéro : le contrôle reste affiché, faute de quoi « aucune anomalie » ne
+se distinguerait plus de « plus personne ne mesure ».
+
 Deux choix de lisibilité méritent d'être dits. Les tranches d'âge sont un axe
 **ordonné** : elles utilisent une rampe d'une seule teinte, du clair au foncé —
 seul codage qui reste lisible pour un daltonien, puisqu'il porte sur la clarté et
