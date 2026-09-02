@@ -236,3 +236,33 @@ class TestAlertesGenerales:
         assert scalar(ch, "SELECT sum(total) FROM (SELECT any(releves_total) AS total "
                           "FROM gold_pilotage.kpi_alertes_jour_general GROUP BY jour)") \
             == scalar(ch, "SELECT count() FROM silver.fait_monitoring")
+
+
+class TestPartAlerteParService:
+    """kpi_alertes_jour : la part se calcule sur le total du jour ET du service.
+
+    Le défaut corrigé : grouper par motif puis diviser par le compte du groupe
+    donnait count() / count() = 1 sur chaque ligne d'alerte, et 0 sur la ligne
+    « aucune ». La colonne n'apprenait rien.
+    """
+
+    def test_la_part_est_strictement_inferieure_a_un(self, ch):
+        assert scalar(ch, "SELECT countIf(part_alerte >= 1) "
+                          "FROM gold_pilotage.kpi_alertes_jour") == 0
+
+    def test_le_denominateur_est_commun_au_couple_jour_service(self, ch):
+        assert scalar(ch, "SELECT max(n) FROM (SELECT uniqExact(releves_total) AS n "
+                          "FROM gold_pilotage.kpi_alertes_jour "
+                          "GROUP BY jour, service_code)") == 1
+
+    def test_les_denominateurs_couvrent_tous_les_releves(self, ch):
+        """La ligne « aucune » est conservée pour cela : un service sans alerte
+        un jour donné garde une ligne, et ses relevés restent comptés."""
+        assert scalar(ch, "SELECT sum(t) FROM (SELECT any(releves_total) AS t "
+                          "FROM gold_pilotage.kpi_alertes_jour "
+                          "GROUP BY jour, service_code)") \
+            == scalar(ch, "SELECT count() FROM silver.fait_monitoring")
+
+    def test_la_ligne_aucune_ne_compte_aucune_alerte(self, ch):
+        assert scalar(ch, "SELECT sum(releves_alerte) FROM gold_pilotage.kpi_alertes_jour "
+                          "WHERE motif_alerte = 'aucune'") == 0

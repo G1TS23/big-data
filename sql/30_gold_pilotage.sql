@@ -90,9 +90,9 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour
     service_code    LowCardinality(String),
     service_label   String,
     motif_alerte    LowCardinality(String),
-    releves_alerte  UInt64,
-    releves_total   UInt64,
-    part_alerte     Float64,
+    releves_alerte  UInt64,   -- relevés portant CE motif, ce jour-là, dans ce service
+    releves_total   UInt64,   -- tous les relevés du jour pour ce service
+    part_alerte     Float64,  -- releves_alerte / releves_total
     _batch_id       LowCardinality(String)
 ) ENGINE = MergeTree ORDER BY (jour, service_code, motif_alerte);
 
@@ -227,31 +227,49 @@ LEFT JOIN (
 INNER JOIN silver.dim_service AS d ON d.service_code = e.service_code;
 
 INSERT INTO gold_pilotage.kpi_alertes_jour
-SELECT toDate(m.ts) AS jour, m.service_code, d.service_label,
-       if(m.motif_alerte = '', 'aucune', m.motif_alerte) AS motif_alerte,
-       countIf(m.est_alerte = 1) AS releves_alerte,
-       count() AS releves_total,
-       round(countIf(m.est_alerte = 1) / count(), 4) AS part_alerte,
+SELECT jour, service_code, service_label, motif_alerte,
+       releves_alerte, releves_total,
+       round(releves_alerte / releves_total, 4) AS part_alerte,
        {b:String}
-FROM silver.fait_monitoring AS m
-INNER JOIN silver.dim_service AS d ON d.service_code = m.service_code
-GROUP BY jour, m.service_code, d.service_label, motif_alerte;
+FROM (
+    SELECT toDate(m.ts) AS jour,
+           m.service_code AS service_code,
+           d.service_label AS service_label,
+           if(m.motif_alerte = '', 'aucune', m.motif_alerte) AS motif_alerte,
+           -- countIf, et non count() : sur la ligne « aucune », le groupe est
+           -- fait de relevés SANS alerte, qui en compte donc zéro. La colonne
+           -- garde ainsi le même sens sur toutes les lignes.
+           countIf(m.est_alerte = 1) AS releves_alerte,
+           -- Le dénominateur est le total du jour POUR CE SERVICE, pris par une
+           -- fenêtre sur les groupes. Le calculer dans le groupe donnerait
+           -- count() / count() = 1 sur chaque ligne.
+           sum(count()) OVER (PARTITION BY toDate(m.ts), m.service_code) AS releves_total
+    FROM silver.fait_monitoring AS m
+    INNER JOIN silver.dim_service AS d ON d.service_code = m.service_code
+    GROUP BY jour, service_code, service_label, motif_alerte
+);
+-- La ligne « aucune » est conservée, contrairement à la table générale : ici
+-- elle garantit qu'un service SANS alerte un jour donné garde une ligne. Sans
+-- elle, comparer les services ferait disparaître les bonnes journées au lieu de
+-- les montrer à zéro. Les parts d'un même couple jour × service somment à 1.
 
 INSERT INTO gold_pilotage.kpi_alertes_jour_general
 SELECT jour, motif_alerte, releves_alerte, releves_total,
        round(releves_alerte / releves_total, 4) AS part_alerte,
        {b:String}
 FROM (
+    -- Pas d'alias sur motif_alerte : « m.motif_alerte AS motif_alerte » est un
+    -- auto-alias, que l'analyseur peut ne pas reconnaître dans le GROUP BY.
     SELECT toDate(m.ts) AS jour,
-           m.motif_alerte AS motif_alerte,
-           count() AS releves_alerte,
+           m.motif_alerte,
+           countIf(m.est_alerte = 1) AS releves_alerte,
            -- Le dénominateur est le TOTAL DU JOUR, pris par une fenêtre sur les
            -- groupes. Le calculer dans le groupe donnerait count() / count() = 1
            -- sur chaque ligne : la part vaudrait toujours 1 pour une alerte et 0
            -- pour le reste, ce qui n'apprend rien.
            sum(count()) OVER (PARTITION BY toDate(m.ts)) AS releves_total
     FROM silver.fait_monitoring AS m
-    GROUP BY jour, motif_alerte
+    GROUP BY jour, m.motif_alerte
 )
 -- Les relevés sans alerte ont servi de dénominateur ; ils n'ont pas leur place
 -- dans une table qui décrit les alertes.
