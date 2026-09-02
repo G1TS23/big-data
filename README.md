@@ -146,3 +146,4 @@ config/dashboards.yml  spécification des tableaux de bord
 
 - `docs/DOSSIER.md` — besoin, architecture justifiée, traitements, indicateurs, limites
 - `docs/EXPLOITATION.md` — lancement, planification, reprise sur incident
+- `docs/VALIDATION.md` — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs
