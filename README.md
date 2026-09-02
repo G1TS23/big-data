@@ -163,7 +163,7 @@ eds/         orchestrateur — un module par étape du pipeline :
              trois cents de SQL, c'est la preuve que le calcul est resté dans
              le moteur.
 tests/       tests des règles métier et de la pseudonymisation
-docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2)
+docs/        DOSSIER.md (Partie 1 + évolution) · EXPLOITATION.md (Partie 2)
              VALIDATION.md (réconciliation et recalculs) · captures
              outils/ reconcilier.py, generer_env.py, capture_terminal.py,
                      verrouiller.py
@@ -173,6 +173,6 @@ config/dashboards.yml  spécification des tableaux de bord
 
 ## Documentation
 
-- [Dossier de conception](docs/DOSSIER.md) — besoin, architecture justifiée, traitements, indicateurs, limites
+- [Dossier de conception](docs/DOSSIER.md) — Partie 1 (besoin, architecture, traitements, indicateurs, limites) et l'évolution demandée par le CHU
 - [Guide d'exploitation](docs/EXPLOITATION.md) — lancement, planification, reprise sur incident
 - [Validation des chiffres](docs/VALIDATION.md) — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs, confrontation au corrigé, justification de l'évolution, limites chiffrées
