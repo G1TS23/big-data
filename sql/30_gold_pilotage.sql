@@ -96,6 +96,19 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour
     _batch_id       LowCardinality(String)
 ) ENGINE = MergeTree ORDER BY (jour, service_code, motif_alerte);
 
+-- ─── Relevés en alerte, tous services confondus ─────────────────────────────
+-- La même mesure que kpi_alertes_jour, sans la dimension service : c'est la
+-- courbe que regarde une direction, quand l'autre sert à comparer les services.
+CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour_general
+(
+    jour            Date,
+    motif_alerte    LowCardinality(String),
+    releves_alerte  UInt64,   -- relevés portant CE motif, ce jour-là
+    releves_total   UInt64,   -- tous les relevés du jour, alertes comprises
+    part_alerte     Float64,  -- releves_alerte / releves_total
+    _batch_id       LowCardinality(String)
+) ENGINE = MergeTree ORDER BY (jour, motif_alerte);
+
 -- ─── Reconstruction ────────────────────────────────────────────────────────
 
 TRUNCATE TABLE gold_pilotage.kpi_synthese;
@@ -105,6 +118,7 @@ TRUNCATE TABLE gold_pilotage.kpi_urgences_jour;
 TRUNCATE TABLE gold_pilotage.kpi_occupation_jour;
 TRUNCATE TABLE gold_pilotage.kpi_readmission_service;
 TRUNCATE TABLE gold_pilotage.kpi_alertes_jour;
+TRUNCATE TABLE gold_pilotage.kpi_alertes_jour_general;
 
 INSERT INTO gold_pilotage.kpi_synthese
 SELECT
@@ -222,3 +236,23 @@ SELECT toDate(m.ts) AS jour, m.service_code, d.service_label,
 FROM silver.fait_monitoring AS m
 INNER JOIN silver.dim_service AS d ON d.service_code = m.service_code
 GROUP BY jour, m.service_code, d.service_label, motif_alerte;
+
+INSERT INTO gold_pilotage.kpi_alertes_jour_general
+SELECT jour, motif_alerte, releves_alerte, releves_total,
+       round(releves_alerte / releves_total, 4) AS part_alerte,
+       {b:String}
+FROM (
+    SELECT toDate(m.ts) AS jour,
+           m.motif_alerte AS motif_alerte,
+           count() AS releves_alerte,
+           -- Le dénominateur est le TOTAL DU JOUR, pris par une fenêtre sur les
+           -- groupes. Le calculer dans le groupe donnerait count() / count() = 1
+           -- sur chaque ligne : la part vaudrait toujours 1 pour une alerte et 0
+           -- pour le reste, ce qui n'apprend rien.
+           sum(count()) OVER (PARTITION BY toDate(m.ts)) AS releves_total
+    FROM silver.fait_monitoring AS m
+    GROUP BY jour, motif_alerte
+)
+-- Les relevés sans alerte ont servi de dénominateur ; ils n'ont pas leur place
+-- dans une table qui décrit les alertes.
+WHERE motif_alerte != '';

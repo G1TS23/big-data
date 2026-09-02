@@ -197,3 +197,42 @@ class TestHorizonDObservation:
         dépliage des séjours."""
         assert scalar(ch, "SELECT countIf(patients_presents = 0) "
                           "FROM gold_pilotage.kpi_occupation_jour") == 0
+
+
+class TestAlertesGenerales:
+    """kpi_alertes_jour_general : la même mesure sans la dimension service.
+
+    Deux tables qui comptent la même chose doivent tomber d'accord entre elles
+    ET avec silver, sans quoi l'une des deux ment sans qu'on sache laquelle.
+    """
+
+    def test_le_total_concorde_avec_silver(self, ch):
+        assert scalar(ch, "SELECT sum(releves_alerte) "
+                          "FROM gold_pilotage.kpi_alertes_jour_general") \
+            == scalar(ch, "SELECT countIf(est_alerte = 1) FROM silver.fait_monitoring")
+
+    def test_le_total_concorde_avec_la_table_par_service(self, ch):
+        assert scalar(ch, "SELECT sum(releves_alerte) "
+                          "FROM gold_pilotage.kpi_alertes_jour_general") \
+            == scalar(ch, "SELECT sum(releves_alerte) FROM gold_pilotage.kpi_alertes_jour")
+
+    def test_aucune_ligne_sans_motif(self, ch):
+        """Les relevés sans alerte servent de dénominateur, ils ne sont pas des
+        lignes de cette table."""
+        assert scalar(ch, "SELECT countIf(motif_alerte IN ('', 'aucune')) "
+                          "FROM gold_pilotage.kpi_alertes_jour_general") == 0
+
+    def test_la_part_est_calculee_sur_le_total_du_jour(self, ch):
+        """Le piège : grouper par motif ET diviser par le compte du groupe donne
+        toujours 1. La part doit être strictement inférieure à 1, et le
+        dénominateur identique pour tous les motifs d'un même jour."""
+        assert scalar(ch, "SELECT countIf(part_alerte >= 1) "
+                          "FROM gold_pilotage.kpi_alertes_jour_general") == 0
+        assert scalar(ch, "SELECT max(n) FROM (SELECT uniqExact(releves_total) AS n "
+                          "FROM gold_pilotage.kpi_alertes_jour_general GROUP BY jour)") == 1
+
+    def test_le_denominateur_est_bien_tous_les_releves(self, ch):
+        """Somme des relevés du jour, dédupliquée, = tous les relevés de silver."""
+        assert scalar(ch, "SELECT sum(total) FROM (SELECT any(releves_total) AS total "
+                          "FROM gold_pilotage.kpi_alertes_jour_general GROUP BY jour)") \
+            == scalar(ch, "SELECT count() FROM silver.fait_monitoring")
