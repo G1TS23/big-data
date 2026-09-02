@@ -399,18 +399,19 @@ SELECT {b:String}, 'fait_sejour', 'mode_sortie_manquant', 'SIGNALEMENT',
 
 -- Les deux exclusions du taux de réadmission, rendues auditables : le
 -- numérateur publié est exactement « retours dans la fenêtre » moins ces deux
--- lignes. Un retour après un décès est impossible, un retour après mutation ou
+-- lignes. Ce ne sont pas des anomalies mais la construction d'un indicateur ;
+-- la carte « Anomalies signalées » les écarte pour cette raison. Un retour après un décès est impossible, un retour après mutation ou
 -- transfert n'est pas un retour — le patient n'était jamais rentré chez lui.
 INSERT INTO ops.data_quality
     (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
-SELECT {b:String}, 'fait_sejour', 'retour_apres_deces_ecarte', 'SIGNALEMENT',
+SELECT {b:String}, 'fait_sejour', 'readmission_exclue_deces', 'SIGNALEMENT',
        countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}),
        countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}
                AND mode_sortie_precedent = 'deces') FROM silver.fait_sejour;
 
 INSERT INTO ops.data_quality
     (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
-SELECT {b:String}, 'fait_sejour', 'retour_apres_mutation_ecarte', 'SIGNALEMENT',
+SELECT {b:String}, 'fait_sejour', 'readmission_exclue_mutation', 'SIGNALEMENT',
        countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}),
        countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}
                AND mode_sortie_precedent IN ('mutation', 'transfert'))

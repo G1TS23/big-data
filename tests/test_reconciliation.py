@@ -115,8 +115,8 @@ class TestAnomaliesAttendues:
                 if r in SIGNALEMENTS} == SIGNALEMENTS
 
     def test_le_numerateur_de_readmission_se_reconstitue(self, qualite):
-        fenetre, deces = qualite["retour_apres_deces_ecarte"]
-        _, mutation = qualite["retour_apres_mutation_ecarte"]
+        fenetre, deces = qualite["readmission_exclue_deces"]
+        _, mutation = qualite["readmission_exclue_mutation"]
         assert (fenetre, deces, mutation) == (780, 133, 255)
         assert fenetre - deces - mutation == 392
 

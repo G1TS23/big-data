@@ -159,10 +159,21 @@ GROUP BY jour;
 -- Plutôt que de croiser un calendrier avec les séjours — ClickHouse n'accepte
 -- pas de jointure sans clé d'égalité — chaque séjour est dilaté en la liste des
 -- journées qu'il couvre. Une seule passe, aucun produit cartésien.
+-- L'occupation s'arrête à l'HORIZON D'OBSERVATION : la date du dernier dépôt.
+-- Deux raisons, et la seconde est un piège.
+--   Au-delà de l'horizon, on ne connaît plus les admissions — la courbe
+--   décroîtrait sans que l'hôpital se vide, ce qui n'est pas de l'occupation
+--   mais l'extinction d'une cohorte fermée.
+--   Et « now() » pour un séjour en cours faisait sortir d'un coup, à la date du
+--   jour, les patients encore hospitalisés : le graphique montrait une falaise,
+--   qui se déplaçait à chaque exécution. Un tableau de bord dont la forme dépend
+--   de l'heure où on le regarde n'est pas un tableau de bord.
 INSERT INTO gold_pilotage.kpi_occupation_jour
 SELECT jour, service_code, service_label, count() AS patients_presents, {b:String}
 FROM (
-    SELECT s.service_code, d.service_label,
+    -- Alias explicites : avec le CROSS JOIN, « s.service_code » ne serait pas
+    -- exposé sous le nom « service_code » à la portée englobante.
+    SELECT s.service_code AS service_code, d.service_label AS service_label,
            -- greatest(…, 1) est vital : un séjour PROGRAMMÉ, admis dans le
            -- futur, donnerait une durée négative, que toUInt32 convertirait en
            -- 4 294 967 295. range() tenterait alors d'allouer trente-deux
@@ -170,9 +181,15 @@ FROM (
            -- journée d'admission.
            toDate(s.admission_ts) + arrayJoin(range(greatest(toInt32(
                dateDiff('day', toDate(s.admission_ts),
-                        toDate(ifNull(s.discharge_ts, now()))) + 1), 1))) AS jour
+                        least(toDate(ifNull(s.discharge_ts, h.horizon)),
+                              h.horizon)) + 1), 1))) AS jour
     FROM silver.fait_sejour AS s
     INNER JOIN silver.dim_service AS d ON d.service_code = s.service_code
+    -- assumeNotNull : un sous-select scalaire est toujours Nullable, et
+    -- least() sur une Date Nullable propagerait le NULL à toute la colonne.
+    CROSS JOIN (SELECT assumeNotNull(max(_ingestion_date)) AS horizon
+                FROM bronze.sejours) AS h
+    WHERE toDate(s.admission_ts) <= h.horizon
 )
 GROUP BY jour, service_code, service_label;
 

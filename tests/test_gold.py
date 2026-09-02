@@ -64,10 +64,14 @@ class TestIndicateursDePilotage:
 
     def test_occupation_couvre_toute_la_periode(self, ch):
         """Un séjour compte chaque jour où le patient est présent, admission
-        et sortie comprises."""
+        comprise, jusqu'à sa sortie ou l'horizon d'observation.
+
+        La borne haute est le dernier dépôt, pas la date du jour : au-delà, les
+        admissions ne sont plus connues. Voir TestHorizonDObservation."""
         jours = scalar(ch, "SELECT uniqExact(jour) FROM gold_pilotage.kpi_occupation_jour")
-        attendu = scalar(ch, "SELECT dateDiff('day', min(toDate(admission_ts)), "
-                             "max(toDate(ifNull(discharge_ts, now())))) + 1 FROM silver.fait_sejour")
+        attendu = scalar(ch, "SELECT dateDiff('day', min(toDate(s.admission_ts)), "
+                             "(SELECT max(_ingestion_date) FROM bronze.sejours)) + 1 "
+                             "FROM silver.fait_sejour AS s")
         assert jours == attendu
 
     def test_alertes_coherentes_avec_silver(self, ch):
@@ -168,3 +172,28 @@ class TestCloisonnement:
                                      "gold_recherche.coh_prevalence(k = 1)")
         assert not autorise
         assert "Unknown table function" in motif or "UNKNOWN" in motif.upper()
+
+
+class TestHorizonDObservation:
+    """L'occupation s'arrête au dernier dépôt, jamais à la date du jour.
+
+    Le défaut corrigé : les séjours en cours étaient comptés présents jusqu'à
+    « now() », si bien que le graphique montrait une falaise le jour même — une
+    falaise qui se déplaçait à chaque exécution.
+    """
+
+    def test_la_serie_s_arrete_au_dernier_depot(self, ch):
+        horizon = scalar(ch, "SELECT max(_ingestion_date) FROM bronze.sejours")
+        assert scalar(ch, "SELECT max(jour) FROM gold_pilotage.kpi_occupation_jour") == horizon
+
+    def test_la_serie_ne_depend_pas_de_la_date_du_jour(self, ch):
+        """Si la borne était now(), la série irait jusqu'à aujourd'hui — ce qui
+        est nécessairement postérieur au dernier dépôt d'un jeu figé."""
+        assert scalar(ch, "SELECT countIf(jour > (SELECT max(_ingestion_date) "
+                          "FROM bronze.sejours)) FROM gold_pilotage.kpi_occupation_jour") == 0
+
+    def test_aucun_jour_sans_patient(self, ch):
+        """Une occupation nulle un jour du milieu signalerait un trou dans le
+        dépliage des séjours."""
+        assert scalar(ch, "SELECT countIf(patients_presents = 0) "
+                          "FROM gold_pilotage.kpi_occupation_jour") == 0

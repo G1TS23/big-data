@@ -13,11 +13,12 @@ deux fois.
 - [2. Réconciliation source ↔ entrepôt](#2-réconciliation-source--entrepôt)
 - [3. Ce que chaque écart recouvre](#3-ce-que-chaque-écart-recouvre)
 - [4. Anomalies conservées et signalées](#4-anomalies-conservées-et-signalées)
-- [5. Recalcul des sept indicateurs de synthèse](#5-recalcul-des-sept-indicateurs-de-synthèse)
-- [6. Recalcul détaillé sur trois séjours](#6-recalcul-détaillé-sur-trois-séjours)
-- [7. Ce que le recalcul a corrigé](#7-ce-que-le-recalcul-a-corrigé)
-- [8. Test de rejeu](#8-test-de-rejeu)
-- [9. Ce que cette validation ne couvre pas](#9-ce-que-cette-validation-ne-couvre-pas)
+- [5. Le seuil de diffusion, éprouvé](#5-le-seuil-de-diffusion-éprouvé)
+- [6. Recalcul des sept indicateurs de synthèse](#6-recalcul-des-sept-indicateurs-de-synthèse)
+- [7. Recalcul détaillé sur trois séjours](#7-recalcul-détaillé-sur-trois-séjours)
+- [8. Ce que le recalcul a corrigé](#8-ce-que-le-recalcul-a-corrigé)
+- [9. Test de rejeu](#9-test-de-rejeu)
+- [10. Ce que cette validation ne couvre pas](#10-ce-que-cette-validation-ne-couvre-pas)
 
 ---
 
@@ -39,6 +40,17 @@ sans erreur visible.
 diagnostics et relevés sont **incrémentaux** : 6 797 identifiants de séjour pour
 6 797 lignes, aucun ne revient d'un jour sur l'autre. Les patients sont livrés
 en **instantanés complets**, les mêmes 6 000 patients trois fois.
+
+**Les trois derniers dépôts sont partiels**, et cela se voit sur tout indicateur
+exprimé par jour :
+
+| dépôt | 08-01 … 08-25 | 08-26 | 08-27 | 08-28 |
+|---|---:|---:|---:|---:|
+| séjours reçus | ~250 à 300 par jour | 40 | 51 | 63 |
+
+Les courbes d'activité, d'urgences et d'occupation décrochent donc sur les trois
+derniers jours. Ce décrochage appartient à la livraison, pas à l'hôpital : il ne
+doit pas se lire comme une baisse d'activité.
 
 ---
 
@@ -170,7 +182,39 @@ Un test le vérifie à chaque exécution
 
 ---
 
-## 5. Recalcul des sept indicateurs de synthèse
+## 5. Le seuil de diffusion, éprouvé
+
+Les vues de recherche n'exposent une cohorte que si elle compte au moins
+**k = 5 patients** (`EDS_K_ANONYMITE`). En deçà, un effectif suffit à
+ré-identifier : dans un CHU, « une femme de 22 ans atteinte de mucoviscidose »
+ne désigne qu'une personne.
+
+Le référentiel livré compte 13 codes CIM-10, dont **trois maladies rares** que le
+jeu précédent ne contenait pas :
+
+| code | libellé | patients | diffusé ? |
+|---|---|---:|:--|
+| `G12` | Amyotrophie spinale | 8 | **oui** — 8 ≥ 5 |
+| `E84` | Mucoviscidose | 4 | **non** — supprimé |
+| `Q90` | Trisomie 21 | 3 | **non** — supprimé |
+
+`gold_recherche.coh_prevalence` renvoie donc **11 lignes pour 13 codes**. Ce
+n'est pas une perte de données : c'est la protection qui s'applique, et elle est
+visible sans instrumentation particulière — il suffit de compter les lignes.
+
+Sur l'ensemble des croisements pathologie × tranche d'âge, **41 cohortes sur 47
+sont diffusables et 6 sont supprimées**. Le seuil n'est pas décoratif : il retire
+effectivement de la donnée, et les vues sont déclarées `SQL SECURITY DEFINER`
+pour qu'un compte de recherche ne puisse pas le contourner en interrogeant
+directement les tables silver — `eds acces` le vérifie.
+
+> Le jeu de données a manifestement été construit pour éprouver ce point. Trois
+> pathologies à 3, 4 et 8 patients encadrent le seuil de part et d'autre : c'est
+> le test que l'on écrirait soi-même.
+
+---
+
+## 6. Recalcul des sept indicateurs de synthèse
 
 Chaque valeur de `gold_pilotage.kpi_synthese` a été recalculée depuis les
 fichiers bruts, en réimplémentant la définition métier à la main.
@@ -208,7 +252,7 @@ sait toujours avec quels seuils un chiffre a été produit.
 
 ---
 
-## 6. Recalcul détaillé sur trois séjours
+## 7. Recalcul détaillé sur trois séjours
 
 Trois séjours contrastés, suivis à la main de bout en bout. Toutes les valeurs
 d'entrée se lisent directement dans `source-filestorage/`.
@@ -273,7 +317,7 @@ d'entrée se lisent directement dans `source-filestorage/`.
 
 ---
 
-## 7. Ce que le recalcul a corrigé
+## 8. Ce que le recalcul a corrigé
 
 Le premier recalcul manuel **ne tombait pas juste** : il trouvait 15 séjours
 rejetés au lieu de 68.
@@ -292,7 +336,7 @@ incohérent, que ce soit de deux heures ou de deux jours.
 
 ---
 
-## 8. Test de rejeu
+## 9. Test de rejeu
 
 Le pipeline doit pouvoir être relancé sans que les chiffres bougent. Deux
 `eds run` consécutifs, avec relevé des indicateurs avant, entre et après :
@@ -322,7 +366,7 @@ déboguer.
 
 ---
 
-## 9. Ce que cette validation ne couvre pas
+## 10. Ce que cette validation ne couvre pas
 
 Elle établit que **le pipeline calcule fidèlement ce qu'on lui a demandé de
 calculer**. Elle n'établit pas que les définitions métier retenues sont les
@@ -351,6 +395,22 @@ soins d'un hôpital.
 
 **3 — Les cinq tranches d'âge**, dont le découpage sert autant la lisibilité des
 graphiques que la pertinence épidémiologique.
+
+**Sur l'occupation.** La courbe s'arrête au **dernier dépôt** (2026-08-28), et non
+à la date du jour. Au-delà de cette borne les admissions ne sont plus connues :
+la courbe décroîtrait sans que l'hôpital se vide, ce qui n'est pas de
+l'occupation mais l'extinction d'une cohorte fermée.
+
+Ce point a été trouvé pendant cet audit. Les séjours en cours étaient comptés
+présents jusqu'à `now()`, ce qui produisait une **falaise à la date du jour** —
+et une falaise qui se déplaçait à chaque exécution. Un tableau de bord dont la
+forme dépend de l'heure où on le regarde ne vaut rien ; trois tests gardent
+désormais la borne (`TestHorizonDObservation`).
+
+Le début de la courbe reste, lui, un artefact assumé : le premier dépôt est celui
+du 1er août, personne n'est donc « déjà présent » ce jour-là, et la montée des
+dix premiers jours est le remplissage de la fenêtre d'observation, non une
+hausse d'activité.
 
 Enfin, cette validation ne se prononce pas sur les **anomalies conservées**
 décrites en [section 4](#4-anomalies-conservées-et-signalées) : elle mesure leur

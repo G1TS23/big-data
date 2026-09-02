@@ -321,8 +321,8 @@ class TestExclusionsDuTauxDeReadmission:
                         parameters={"r": run, "g": regle}).result_rows[0]
 
     def test_le_numerateur_se_reconstitue(self, ch, dernier_run):
-        fenetre, deces = self.controle(ch, dernier_run, "retour_apres_deces_ecarte")
-        _, mutation = self.controle(ch, dernier_run, "retour_apres_mutation_ecarte")
+        fenetre, deces = self.controle(ch, dernier_run, "readmission_exclue_deces")
+        _, mutation = self.controle(ch, dernier_run, "readmission_exclue_mutation")
         publie = scalar(ch, "SELECT countIf(est_readmission_30j = 1) FROM silver.fait_sejour")
         assert fenetre - deces - mutation == publie
 
@@ -332,7 +332,7 @@ class TestExclusionsDuTauxDeReadmission:
 
     def test_les_retours_post_mortem_existent_bel_et_bien(self, ch, dernier_run):
         """Sans cette assertion, le test précédent passerait sur zéro ligne."""
-        _, deces = self.controle(ch, dernier_run, "retour_apres_deces_ecarte")
+        _, deces = self.controle(ch, dernier_run, "readmission_exclue_deces")
         assert deces == scalar(ch, "SELECT countIf(est_apres_deces = 1 "
                                    "AND jours_depuis_sortie_precedente BETWEEN 0 AND 30) "
                                    "FROM silver.fait_sejour")
