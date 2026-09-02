@@ -179,9 +179,8 @@ tableaux:
          description: "La donnée est fausse : elle n'entre pas dans l'entrepôt.",
          serie: "Lignes", couleur: serie_2, valeurs: true,
          row: 13, col: 0, size_x: 12, size_y: 7}
-      - {sql: expl_signalements.sql, titre: "Anomalies signalées, non écartées", forme: row,
-         description: "L'incohérence porte sur la relation entre deux enregistrements : en écarter un fabriquerait une erreur au lieu d'en corriger une.",
-         serie: "Lignes", couleur: serie_4, valeurs: true,
+      - {sql: expl_signalements.sql, titre: "Anomalies signalées, non écartées", forme: table,
+         description: "Conservées parce que les écarter fabriquerait une erreur au lieu d'en corriger une. Un contrôle à zéro n'est pas un contrôle absent : il a tourné et n'a rien trouvé — le jeu précédent affichait 53,7 % de séjours chevauchants.",
          row: 13, col: 12, size_x: 12, size_y: 7}
 
       - {sql: expl_volumetrie.sql, titre: "Lignes chargées par flux et par dépôt", forme: table,

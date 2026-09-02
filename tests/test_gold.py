@@ -4,6 +4,8 @@ Ce module éprouve ce que le sujet réclame de démontrer : deux usages qui ne
 voient pas les mêmes données, et un seuil de diffusion qu'aucune requête ne
 peut lever.
 """
+from pathlib import Path
+
 import pytest
 
 from eds.access import COMPTES, INTERDITS, _peut_lire
@@ -291,3 +293,34 @@ class TestVolumetrieDeLExploitation:
     ])
     def test_la_volumetrie_egale_le_contenu_de_bronze(self, ch, source, table):
         assert self.volumetrie(ch, source) == scalar(ch, f"SELECT count() FROM {table}")
+
+
+class TestCarteDesSignalements:
+    """Un contrôle à zéro doit RESTER sur la carte.
+
+    Deux signalements valent zéro sur le jeu courant. La tentation est de les
+    masquer ; ce serait rendre indistinguables « aucune anomalie » et « plus
+    personne ne mesure ». Le jeu précédent affichait 53,7 % de séjours
+    chevauchants, et c'est cette mesure qui a permis de le dire.
+    """
+
+    CARTE = Path(__file__).resolve().parents[1] / "sql" / "dashboards" / "expl_signalements.sql"
+
+    def lignes(self, ch):
+        return ch.query(self.CARTE.read_text(encoding="utf-8")).result_rows
+
+    def test_la_carte_montre_tous_les_signalements(self, ch):
+        run = scalar(ch, "SELECT run_id FROM ops.run_log FINAL WHERE command = 'silver' "
+                         "AND status = 'OK' ORDER BY started_at DESC LIMIT 1")
+        attendus = scalar(ch, "SELECT count() FROM ops.data_quality "
+                              "WHERE run_id = {r:String} AND traitement = 'SIGNALEMENT' "
+                              "AND regle NOT LIKE 'readmission_exclue_%'", r=run)
+        assert len(self.lignes(ch)) == attendus
+
+    def test_les_controles_a_zero_sont_conserves(self, ch):
+        zeros = [l for l in self.lignes(ch) if l[1] == 0]
+        assert zeros, "aucun contrôle à zéro : ce garde-fou ne prouve plus rien"
+
+    def test_chaque_ligne_porte_sa_base(self, ch):
+        """Sans le dénominateur, « 0 » ne dit pas si le contrôle a tourné."""
+        assert all(l[2] > 0 for l in self.lignes(ch))
