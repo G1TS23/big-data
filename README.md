@@ -36,7 +36,7 @@ rien à récupérer ailleurs.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .              # les dépendances, et la commande « eds »
 make env                      # écrit .env : sel et mots de passe tirés au sort
 docker compose up -d          # ClickHouse, Metabase, planificateur
 eds init                      # bases, tables, journal des exécutions
@@ -49,6 +49,11 @@ Les quatre commandes `eds` sont l'installation complète : `eds run` remplit
 l'entrepôt, `eds acces` crée les comptes par usage, `eds metabase` publie les
 tableaux de bord. Sans `eds acces`, le cloisonnement n'existe pas encore et la
 suite de tests le signale.
+
+L'ordre compte : `eds metabase` a besoin des comptes que `eds acces` vient de
+créer. Au premier passage, `eds acces` ne peut donc vérifier que le moteur ;
+le rejouer une fois les tableaux de bord publiés couvre aussi la restitution,
+soit 41 contrôles.
 
 `make env` refuse d'écraser un `.env` existant : changer `EDS_SALT` romprait la
 continuité des pseudonymes déjà chargés.
@@ -106,7 +111,7 @@ La suite de tests, elle, ne dépend pas d'eux : `tests/fixtures/` contient des
 |---|---|
 | Pseudonymisation | HMAC-SHA256 salé sur `patient_id`, appliqué **à l'entrée du lake** — déterministe (les jointures survivent), non réversible sans le sel |
 | Minimisation | `nom`, `prenom`, `nir` supprimés ; `birth_date` généralisée en `birth_year` |
-| Cloisonnement | trois usages, trois comptes ClickHouse, trois collections Metabase ; `eds acces` en fait la démonstration (38 contrôles) |
+| Cloisonnement | trois usages, trois comptes ClickHouse, trois collections Metabase ; `eds acces` en fait la démonstration (41 contrôles) |
 | Petits effectifs | seuil k = 5 **scellé dans les vues** de recherche, en `SQL SECURITY DEFINER` — ni paramétrable, ni contournable |
 | Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → chemin du fichier source, taille, date de dépôt et horodatage |
 | Reprise sur incident | écriture sous nom provisoire puis renommage atomique : à son emplacement définitif, un fichier est toujours complet |
