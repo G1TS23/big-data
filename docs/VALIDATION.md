@@ -520,22 +520,31 @@ Le pipeline doit pouvoir être relancé sans que les chiffres bougent. Deux
 `eds run` consécutifs, avec relevé des indicateurs avant, entre et après :
 
 ```
-kpi avant  : 6729  5949  683  5.15  0.1289  3270  0.0809
-kpi après 1: 6729  5949  683  5.15  0.1289  3270  0.0809
-kpi après 2: 6729  5949  683  5.15  0.1289  3270  0.0809
+kpi avant  : 6729  5949  683  5.15  0.1289  3314  0.081
+kpi après 1: 6729  5949  683  5.15  0.1289  3314  0.081
+kpi après 2: 6729  5949  683  5.15  0.1289  3314  0.081
 ```
 
 Identiques. Le nombre de rejets l'est aussi : **926 par exécution**
 (68 + 858), stable d'un run à l'autre.
 
-Les compteurs du lake montrent le mécanisme d'idempotence à l'œuvre : les 89
+Les compteurs du lake montrent le mécanisme d'idempotence à l'œuvre : les 92
 fichiers déjà copiés sont reconnus sur leur date et **aucun octet n'en est
-relu**. Les couches bronze, silver et gold sont, elles, **reconstruites
-intégralement** à chaque passage (`TRUNCATE` puis `INSERT`) : c'est un choix, non
-un oubli. Le volume le permet largement — la chaîne complète tourne en une
-seconde et demie — et il garantit qu'une correction de règle s'applique
-rétroactivement à tout l'historique, sans reprise incrémentale à écrire ni à
-déboguer.
+relu**. Bronze, elle, accumule les dépôts sans jamais être vidée.
+
+Silver et gold sont en revanche **reconstruites intégralement** à chaque passage
+(`CREATE OR REPLACE TABLE` puis `INSERT`) : c'est un choix, non un oubli. Le
+volume le permet largement — la chaîne complète tourne en une seconde — et il
+garantit qu'une correction de règle s'applique rétroactivement à tout
+l'historique, sans reprise incrémentale à écrire ni à déboguer.
+
+Le **remplacement** plutôt que le vidage a une conséquence utile : un changement
+de schéma s'applique de lui-même. Avec `CREATE TABLE IF NOT EXISTS`, ajouter une
+colonne passait inaperçu sur une installation neuve et bloquait sur une base
+existante, avec un « No such column » qui ne désigne pas la cause — il fallait
+supprimer la table à la main. C'est arrivé deux fois pendant ce projet. Bronze
+et `ops` conservent `IF NOT EXISTS`, eux : ils accumulent, et une migration de
+leur schéma reste une opération à conduire.
 
 > La comparaison ci-dessus vérifie d'abord que les fichiers relevés ne sont pas
 > vides. Un `diff` entre deux fichiers vides est silencieux et conclut à

@@ -19,7 +19,7 @@ CREATE DATABASE IF NOT EXISTS silver;
 
 -- ─── Dimensions ─────────────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS silver.dim_patient
+CREATE OR REPLACE TABLE silver.dim_patient
 (
     patient_key String,
     birth_year  UInt16,
@@ -34,7 +34,7 @@ ENGINE = MergeTree ORDER BY patient_key;
 --   service_label (le plus fin) → categorie (regroupe des services) → pole.
 -- La description arrive dans un second fichier, déposé plus tard ; elle enrichit
 -- la dimension sans la remplacer.
-CREATE TABLE IF NOT EXISTS silver.dim_service
+CREATE OR REPLACE TABLE silver.dim_service
 (
     service_code  LowCardinality(String),
     service_label String,
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS silver.dim_service
 ENGINE = MergeTree ORDER BY service_code;
 
 -- Nomenclature des actes, avec le tarif servant à la facturation T2A.
-CREATE TABLE IF NOT EXISTS silver.dim_ccam
+CREATE OR REPLACE TABLE silver.dim_ccam
 (
     code_ccam     LowCardinality(String),
     libelle       String,
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS silver.dim_ccam
 )
 ENGINE = MergeTree ORDER BY code_ccam;
 
-CREATE TABLE IF NOT EXISTS silver.dim_cim10
+CREATE OR REPLACE TABLE silver.dim_cim10
 (
     code_cim10 LowCardinality(String),
     libelle    String,
@@ -70,7 +70,7 @@ ENGINE = MergeTree ORDER BY code_cim10;
 
 -- ─── Faits ──────────────────────────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS silver.fait_sejour
+CREATE OR REPLACE TABLE silver.fait_sejour
 (
     stay_id         String,
     patient_key     String,
@@ -104,7 +104,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(admission_ts)
 ORDER BY (service_code, admission_ts, stay_id);
 
-CREATE TABLE IF NOT EXISTS silver.fait_diagnostic
+CREATE OR REPLACE TABLE silver.fait_diagnostic
 (
     stay_id         String,
     patient_key     String,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS silver.fait_diagnostic
 )
 ENGINE = MergeTree ORDER BY (code_cim10, stay_id);
 
-CREATE TABLE IF NOT EXISTS silver.fait_monitoring
+CREATE OR REPLACE TABLE silver.fait_monitoring
 (
     stay_id      String,
     service_code LowCardinality(String),
@@ -180,7 +180,7 @@ INNER JOIN silver.dim_service AS d ON d.service_code = v.service_code;
 -- sans jamais joindre deux tables de faits entre elles : une jointure
 -- fait_acte × fait_sejour multiplierait les lignes dès qu'un séjour porte
 -- plusieurs actes, et le total serait faux sans qu'aucune erreur ne se lève.
-CREATE TABLE IF NOT EXISTS silver.fait_acte
+CREATE OR REPLACE TABLE silver.fait_acte
 (
     stay_id       String,
     service_code  LowCardinality(String),
@@ -195,24 +195,30 @@ ORDER BY (service_code, code_ccam, acte_ts);
 
 -- ─── Reconstruction ─────────────────────────────────────────────────────────
 --
--- Les tables sont vidées avant d'être réécrites. Une panne au milieu laisse
--- donc silver incomplète — mais jamais INCOHÉRENTE, et l'exécution suivante la
--- reconstruit entièrement depuis bronze, qui n'a pas bougé. `eds run` s'arrête
--- d'ailleurs à la première étape en échec, si bien que gold ne calcule jamais
--- sur une silver à moitié écrite.
+-- Les tables sont remplacées, donc recréées vides, avant d'être réécrites. Une
+-- panne au milieu laisse silver incomplète — mais jamais INCOHÉRENTE, et
+-- l'exécution suivante la reconstruit entièrement depuis bronze, qui n'a pas
+-- bougé. `eds run` s'arrête d'ailleurs à la première étape en échec, si bien
+-- que gold ne calcule jamais sur une silver à moitié écrite.
+--
+-- CREATE OR REPLACE TABLE, et non CREATE IF NOT EXISTS suivi de TRUNCATE.
+--
+-- La raison est une panne vécue deux fois : « IF NOT EXISTS » ne modifie pas une
+-- table déjà là. Ajouter une colonne passait donc inaperçu sur une installation
+-- neuve et bloquait sur une base existante, avec un « No such column » qui ne
+-- désigne pas la cause — il fallait supprimer la table à la main.
+--
+-- Le remplacement est légitime ici parce que ces tables ne détiennent AUCUN état
+-- qui leur soit propre : tout est recalculé depuis les couches précédentes. Ce
+-- n'est pas le cas de bronze, qui accumule les dépôts, ni de ops, qui garde la
+-- trace des exécutions : ces deux-là conservent « IF NOT EXISTS », et une
+-- migration de leur schéma reste une opération à conduire (voir
+-- docs/EXPLOITATION.md).
 --
 -- Une reconstruction sur tables temporaires suivie d'un échange atomique
 -- éviterait la fenêtre d'indisponibilité ; à cette volumétrie, la simplicité
 -- l'emporte.
 
-TRUNCATE TABLE silver.dim_patient;
-TRUNCATE TABLE silver.dim_service;
-TRUNCATE TABLE silver.dim_cim10;
-TRUNCATE TABLE silver.dim_ccam;
-TRUNCATE TABLE silver.fait_sejour;
-TRUNCATE TABLE silver.fait_diagnostic;
-TRUNCATE TABLE silver.fait_monitoring;
-TRUNCATE TABLE silver.fait_acte;
 
 -- Référentiels : on retient le dépôt le plus récent.
 -- LEFT JOIN, et non INNER : le référentiel de description est INCOMPLET — il

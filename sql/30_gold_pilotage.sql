@@ -9,7 +9,7 @@
 CREATE DATABASE IF NOT EXISTS gold_pilotage;
 
 -- ─── Synthèse : la ligne de cartes en haut du tableau de bord ───────────────
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_synthese
+CREATE OR REPLACE TABLE gold_pilotage.kpi_synthese
 (
     sejours              UInt64,
     patients             UInt64,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_synthese
 -- ─── Durée moyenne de séjour, par service et par mois ──────────────────────
 -- Séjours CLOS uniquement : inclure un séjour en cours tronquerait sa durée et
 -- tirerait la DMS vers le bas.
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_dms_service
+CREATE OR REPLACE TABLE gold_pilotage.kpi_dms_service
 (
     mois            Date,
     service_code    LowCardinality(String),
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_dms_service
 ) ENGINE = MergeTree ORDER BY (service_code, mois);
 
 -- ─── Activité quotidienne, par service ─────────────────────────────────────
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_activite_jour
+CREATE OR REPLACE TABLE gold_pilotage.kpi_activite_jour
 (
     jour            Date,
     service_code    LowCardinality(String),
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_activite_jour
 -- admissions en mode urgence : un patient admis en urgence en cardiologie n'est
 -- pas passé aux urgences. Les deux mesures sont conservées, nommées pour ce
 -- qu'elles sont.
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_urgences_jour
+CREATE OR REPLACE TABLE gold_pilotage.kpi_urgences_jour
 (
     jour                    Date,
     passages                UInt64,   -- séjours du service URGENCES admis ce jour
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_urgences_jour
 ) ENGINE = MergeTree ORDER BY jour;
 
 -- ─── Occupation : patients présents chaque jour ────────────────────────────
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_occupation_jour
+CREATE OR REPLACE TABLE gold_pilotage.kpi_occupation_jour
 (
     jour            Date,
     service_code    LowCardinality(String),
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_occupation_jour
 -- ─── Réadmission à 30 jours, par service de SORTIE ─────────────────────────
 -- La qualité des soins se juge sur le service qui a laissé sortir le patient,
 -- pas sur celui qui le récupère.
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_readmission_service
+CREATE OR REPLACE TABLE gold_pilotage.kpi_readmission_service
 (
     service_code    LowCardinality(String),
     service_label   String,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_readmission_service
 ) ENGINE = MergeTree ORDER BY service_code;
 
 -- ─── Relevés en alerte, par jour et par service ────────────────────────────
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour
+CREATE OR REPLACE TABLE gold_pilotage.kpi_alertes_jour
 (
     jour            Date,
     service_code    LowCardinality(String),
@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour
 -- ─── Relevés en alerte, tous services confondus ─────────────────────────────
 -- La même mesure que kpi_alertes_jour, sans la dimension service : c'est la
 -- courbe que regarde une direction, quand l'autre sert à comparer les services.
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour_general
+CREATE OR REPLACE TABLE gold_pilotage.kpi_alertes_jour_general
 (
     jour            Date,
     motif_alerte    LowCardinality(String),
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour_general
 -- dans une seule table plutôt que dans trois presque identiques. Le grain d'une
 -- table de restitution est ce qui la définit ; le multiplier sans raison
 -- multiplierait aussi les occasions de les voir diverger.
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_actes_service
+CREATE OR REPLACE TABLE gold_pilotage.kpi_actes_service
 (
     service_code     LowCardinality(String),
     service_label    String,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_actes_service
     _batch_id        LowCardinality(String)
 ) ENGINE = MergeTree ORDER BY service_code;
 
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_activite_categorie
+CREATE OR REPLACE TABLE gold_pilotage.kpi_activite_categorie
 (
     categorie        LowCardinality(String),
     services         UInt64,
@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_activite_categorie
     _batch_id        LowCardinality(String)
 ) ENGINE = MergeTree ORDER BY categorie;
 
-CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_actes_type
+CREATE OR REPLACE TABLE gold_pilotage.kpi_actes_type
 (
     code_ccam        LowCardinality(String),
     libelle          String,
@@ -161,18 +161,24 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_actes_type
 ) ENGINE = MergeTree ORDER BY code_ccam;
 
 -- ─── Reconstruction ────────────────────────────────────────────────────────
+--
+-- Chaque table est remplacée puis réécrite depuis silver : gold ne détient
+-- aucun état propre, tout s'y recalcule.
+--
+-- CREATE OR REPLACE TABLE, et non CREATE IF NOT EXISTS suivi de TRUNCATE.
+--
+-- La raison est une panne vécue deux fois : « IF NOT EXISTS » ne modifie pas une
+-- table déjà là. Ajouter une colonne passait donc inaperçu sur une installation
+-- neuve et bloquait sur une base existante, avec un « No such column » qui ne
+-- désigne pas la cause — il fallait supprimer la table à la main.
+--
+-- Le remplacement est légitime ici parce que ces tables ne détiennent AUCUN état
+-- qui leur soit propre : tout est recalculé depuis les couches précédentes. Ce
+-- n'est pas le cas de bronze, qui accumule les dépôts, ni de ops, qui garde la
+-- trace des exécutions : ces deux-là conservent « IF NOT EXISTS », et une
+-- migration de leur schéma reste une opération à conduire (voir
+-- docs/EXPLOITATION.md).
 
-TRUNCATE TABLE gold_pilotage.kpi_synthese;
-TRUNCATE TABLE gold_pilotage.kpi_dms_service;
-TRUNCATE TABLE gold_pilotage.kpi_activite_jour;
-TRUNCATE TABLE gold_pilotage.kpi_urgences_jour;
-TRUNCATE TABLE gold_pilotage.kpi_occupation_jour;
-TRUNCATE TABLE gold_pilotage.kpi_readmission_service;
-TRUNCATE TABLE gold_pilotage.kpi_alertes_jour;
-TRUNCATE TABLE gold_pilotage.kpi_actes_service;
-TRUNCATE TABLE gold_pilotage.kpi_activite_categorie;
-TRUNCATE TABLE gold_pilotage.kpi_actes_type;
-TRUNCATE TABLE gold_pilotage.kpi_alertes_jour_general;
 
 INSERT INTO gold_pilotage.kpi_synthese
 SELECT
