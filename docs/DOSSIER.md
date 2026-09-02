@@ -294,6 +294,33 @@ Metabase en édition communautaire n'exporte pas ses tableaux de bord : ils sont
 donc **décrits dans `config/dashboards.yml`**, versionnés et reconstructibles à
 l'identique par `eds metabase`.
 
+### Pilotage hospitalier
+
+Quatre indicateurs de synthèse en tête, puis le détail par service et par jour.
+
+![Tableau de bord Pilotage](img/tdb-pilotage.png)
+
+La courbe d'occupation s'arrête au **28 août**, date du dernier dépôt, et non à
+la date du jour : au-delà, les admissions ne sont plus connues et la courbe
+décroîtrait sans que l'hôpital se vide. Le décrochage des trois derniers jours,
+lui, appartient à la livraison — les dépôts du 26 au 28 sont partiels.
+
+### Recherche clinique
+
+Le tableau s'ouvre sur ce que le chercheur doit savoir avant de lire un chiffre.
+
+![Tableau de bord Recherche](img/tdb-recherche.png)
+
+**Onze pathologies diffusables** alors que le référentiel en compte treize :
+le seuil de k = 5 s'applique, et il se voit sans qu'on ait à l'expliquer.
+L'amyotrophie spinale passe avec ses 8 patients ; la mucoviscidose (4) et la
+trisomie 21 (3) sont absentes.
+
+Les tranches d'âge emploient une **rampe d'une seule teinte**, du clair au
+foncé : l'ordre se lit dans la clarté, ce qu'aucun daltonisme n'altère.
+
+![Cohortes par sexe, durées et comorbidités](img/tdb-recherche-2.png)
+
 Deux choix de lisibilité méritent d'être dits. Les tranches d'âge sont un axe
 **ordonné** : elles utilisent une rampe d'une seule teinte, du clair au foncé —
 seul codage qui reste lisible pour un daltonien, puisqu'il porte sur la clarté et
@@ -524,6 +551,19 @@ diverger.
 Les totaux se recoupent à trois endroits : 8 112 actes et 2 199 450 € se
 retrouvent par service comme par type d'acte, et les 6 729 séjours par service
 comme par catégorie.
+
+Les six cartes ajoutées au tableau de bord Pilotage. Les deux pièges s'y lisent
+directement :
+
+![Cartes ajoutées par l'évolution](img/tdb-pilotage-evolution.png)
+
+**« non décrit » figure dans les deux graphiques par catégorie** — 1 208 séjours,
+DMS de 7,08 jours. Le service dont le référentiel ne dit rien n'est pas escamoté,
+il est nommé pour ce qu'il est.
+
+**La densité par lit ne compte que sept services.** Le huitième en est absent,
+non pas à zéro : sans capacité connue, la densité ne se calcule pas, et
+l'afficher à zéro le ferait passer pour inactif.
 
 **La non-régression est vérifiée par un test** : les sept indicateurs de synthèse
 sont inchangés après l'évolution. C'est ce que le sujet exigeait, et c'est la

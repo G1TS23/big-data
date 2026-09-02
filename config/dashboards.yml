@@ -169,7 +169,7 @@ tableaux:
       - {sql: expl_fraicheur.sql, titre: "Fraîcheur des données", forme: scalar,
          affichage: {scalar.suffix: " h"},
          row: 0, col: 0, size_x: 8, size_y: 4}
-      - {texte: "### Traçabilité\n\nChaque ligne de l'entrepôt porte l'identifiant de l'exécution qui l'a produite. De là on remonte au fichier source et à son empreinte SHA-256.\n\n`_batch_id` → `ops.run_log` → `ops.ingestion_log`",
+      - {texte: "### Traçabilité\n\nChaque ligne de l'entrepôt porte l'identifiant de l'exécution qui l'a produite. De là on remonte au dépôt du CHU dont elle provient, et à la date de ce dépôt.\n\n`_batch_id` → `ops.run_log` → `ops.ingestion_log`",
          row: 0, col: 8, size_x: 16, size_y: 4}
 
       - {sql: expl_runs.sql, titre: "Dernières exécutions", forme: table,
