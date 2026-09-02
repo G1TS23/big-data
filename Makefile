@@ -1,13 +1,19 @@
 # Raccourcis d'exploitation. Les commandes restent utilisables telles quelles
 # sans make ; voir docs/EXPLOITATION.md.
-.PHONY: aide socle pipeline tests verrou capture
+.PHONY: aide env socle pipeline tests verrou capture
 
 aide:
+	@echo "env       écrit .env, sel et mots de passe tirés au sort"
 	@echo "socle     démarre ClickHouse, Metabase et le planificateur"
 	@echo "pipeline  joue la chaîne complète depuis l'hôte"
 	@echo "tests     lance la suite"
 	@echo "verrou    régénère requirements.lock, empreintes comprises"
 	@echo "capture   régénère l'image de la démonstration du cloisonnement"
+
+# N'écrase jamais un .env existant : les secrets en place sont irremplaçables
+# (changer EDS_SALT casse la continuité des pseudonymes).
+env:
+	python3 docs/outils/generer_env.py
 
 socle:
 	docker compose up -d

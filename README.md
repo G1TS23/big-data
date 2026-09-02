@@ -31,24 +31,31 @@ Les transformations ne sortent jamais du moteur : Python pilote, il ne calcule p
 
 ## Installation
 
+Le dépôt se suffit à lui-même : les fichiers du CHU y sont versionnés, il n'y a
+rien à récupérer ailleurs.
+
 ```bash
-cp .env.example .env
-python3 -c "import secrets; print(secrets.token_hex(32))"   # → EDS_SALT dans .env
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-git config core.hooksPath .githooks                          # garde-fou RGPD
-docker compose up -d
-eds init                                                     # bases, tables, traçabilité
-eds lake                                                     # filestorage → lake, pseudonymisé
-eds bronze                                                   # lake → tables typées
-eds silver                                                   # modèle métier fiable, en SQL
-eds gold                                                     # indicateurs, cloisonnés par usage
-eds acces                                                    # comptes + preuve du cloisonnement
-eds metabase                                                 # connexions et tableaux de bord
-eds run                                                      # la chaîne complète, en une commande
-eds scheduler                                                # la déclenche à intervalle régulier
-eds status                                                   # état des dépôts et des runs
+make env                      # écrit .env : sel et mots de passe tirés au sort
+docker compose up -d          # ClickHouse, Metabase, planificateur
+eds init                      # bases, tables, journal des exécutions
+eds run                       # la chaîne : lake → bronze → silver → gold
+eds acces                     # comptes cloisonnés, et la preuve du cloisonnement
+eds metabase                  # connexions et tableaux de bord
 ```
+
+Les quatre commandes `eds` sont l'installation complète : `eds run` remplit
+l'entrepôt, `eds acces` crée les comptes par usage, `eds metabase` publie les
+tableaux de bord. Sans `eds acces`, le cloisonnement n'existe pas encore et la
+suite de tests le signale.
+
+`make env` refuse d'écraser un `.env` existant : changer `EDS_SALT` romprait la
+continuité des pseudonymes déjà chargés.
+
+Chaque étape se rejoue aussi seule — `eds lake`, `eds bronze`, `eds silver`,
+`eds gold` — et `eds status` donne l'état des dépôts et des exécutions.
+Pour activer le garde-fou RGPD sur les commits : `git config core.hooksPath .githooks`.
 
 - ClickHouse : http://localhost:8123/play
 - Metabase : http://localhost:3000
@@ -61,35 +68,36 @@ docker compose logs -f scheduler                  # le suivre en direct
 EDS_PLANIFICATION="*/2 * * * *" docker compose up -d scheduler   # accélérer, pour une démonstration
 ```
 
-## Les données ne sont pas dans ce dépôt
+## Les données
 
-Le CHU dépose ses fichiers dans un espace en **lecture seule**, extérieur au projet.
-Ces fichiers contiennent l'identité réelle des patients (nom, prénom, NIR) : ils ne
-sont **jamais** versionnés, jamais copiés tels quels, et l'identité est supprimée dès
-l'entrée du lake.
-
-Renseigner leur emplacement dans `.env` :
-
-```
-EDS_SOURCE_PATH=../eds-chu-sujet/source-filestorage
-```
-
-Attendu à ce chemin :
+Le dépôt quotidien du CHU est versionné dans `source-filestorage/`, à la demande
+du commanditaire : cloner puis lancer suffit, sans dépendance à un chemin externe.
 
 ```
 source-filestorage/
-├── patients/<AAAA-MM-JJ>/patients.csv        16 200 lignes sur trois jours
-├── sejours/<AAAA-MM-JJ>/sejours.csv          15 000 séjours
-├── diagnostics/<AAAA-MM-JJ>/diagnostics.json 37 380 codes, JSON imbriqué
+├── patients/<AAAA-MM-JJ>/patients.csv         16 200 lignes sur trois jours
+├── sejours/<AAAA-MM-JJ>/sejours.csv           15 000 séjours
+├── diagnostics/<AAAA-MM-JJ>/diagnostics.json  37 380 codes, JSON imbriqué
 ├── monitoring/<AAAA-MM-JJ>/monitoring.parquet 66 677 relevés
 └── referentiels/<AAAA-MM-JJ>/{services,cim10}.csv
 ```
 
-Les fichiers sont conservés **octet pour octet** — `.gitattributes` interdit à
+Ces fichiers sont **synthétiques**, et le commanditaire a confirmé par écrit
+qu'ils ne portent aucune donnée réelle. Le pipeline les traite néanmoins comme
+s'ils étaient réels : ils contiennent des colonnes d'identité (nom, prénom, NIR),
+et celles-ci sont supprimées à l'entrée du lake, jamais rechargées ensuite. Le
+crochet `pre-commit` continue de refuser toute donnée identifiante ailleurs dans
+le dépôt — `source-filestorage/` est la seule exception, explicite et bornée.
+
+En production ce répertoire n'aurait pas sa place ici : la source resterait un
+espace en lecture seule extérieur au projet, désigné par `EDS_SOURCE_PATH`. Le
+code ne fait pas la différence entre les deux — seule cette variable change.
+
+Les fichiers sont conservés **octet pour octet** : `.gitattributes` interdit à
 Git de normaliser leurs fins de ligne, faute de quoi un dépôt cloné recevrait
 une version réécrite et les contrôles de copie fidèle du lake tomberaient.
 
-La suite de tests, elle, tourne sans eux : `tests/fixtures/` contient des
+La suite de tests, elle, ne dépend pas d'eux : `tests/fixtures/` contient des
 échantillons réduits.
 
 ## Conformité
