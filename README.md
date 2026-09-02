@@ -45,6 +45,19 @@ eds acces                     # comptes cloisonnés, et la preuve du cloisonneme
 eds metabase                  # connexions et tableaux de bord
 ```
 
+Sous Windows, seules les deux premières lignes changent — `make` n'y est pas,
+et le script qu'il appelle ne dépend que de la bibliothèque standard :
+
+```powershell
+py -m venv .venv
+.venv\Scripts\activate
+pip install -e .
+py docs\outils\generer_env.py    # l'équivalent de « make env »
+docker compose up -d
+```
+
+La suite (`eds init`, `eds run`, `eds acces`, `eds metabase`) est identique.
+
 Les quatre commandes `eds` sont l'installation complète : `eds run` remplit
 l'entrepôt, `eds acces` crée les comptes par usage, `eds metabase` publie les
 tableaux de bord. Sans `eds acces`, le cloisonnement n'existe pas encore et la

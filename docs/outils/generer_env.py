@@ -42,7 +42,11 @@ def generer(exemple: Path, destination: Path) -> int:
             ligne = f"{cle}={mot_de_passe()}\n"
         lignes.append(ligne)
 
-    destination.write_text("".join(lignes), encoding="utf-8")
+    # newline='' : sans cela, Windows traduirait chaque \n en \r\n, et le \r
+    # resterait collé à la fin de chaque valeur lue par docker compose
+    # (env_file), donnant des mots de passe qui ne correspondent à rien.
+    destination.write_text("".join(lignes), encoding="utf-8", newline="")
+    # Sans effet sous Windows, qui ne connaît que l'attribut lecture seule.
     destination.chmod(0o600)
     print(f"{destination} écrit ({len(MOTS_DE_PASSE)} mots de passe + 1 sel tirés au sort).")
     return 0

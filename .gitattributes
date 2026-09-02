@@ -9,3 +9,13 @@ source-filestorage/**   -text
 # Même raison pour les fixtures : elles servent de référence à des comparaisons
 # octet à octet.
 tests/fixtures/**       -text
+
+# Fichiers que Windows ne doit PAS recevoir en CRLF.
+#
+#   .env.example    docker compose lit .env via env_file ; un \r final resterait
+#                   collé à chaque valeur, donnant des mots de passe erronés
+#   .githooks/*     exécutés par sh, qui refuse les scripts en CRLF
+#   *.sh
+.env.example        text eol=lf
+.githooks/*         text eol=lf
+*.sh                text eol=lf
