@@ -20,9 +20,22 @@ staged=$(git diff --cached --name-only --diff-filter=ACM)
 
 for f in $staged; do
 
+  # ── Exception unique : le dépôt quotidien du CHU ────────────────────────────
+  # Ces fichiers sont versionnés à la demande de l'enseignant, qui les fournit
+  # et corrigera le projet : cloner puis lancer doit suffire. Ils portent des
+  # NIR et des noms de forme réaliste, mais sont synthétiques — et le pipeline
+  # les traite EXACTEMENT comme s'ils étaient réels : pseudonymisation dès
+  # l'entrée du lake, rien d'identifiant au-delà.
+  #
+  # L'exception est nommément bornée à ce dossier. Tout autre fichier portant
+  # une identité reste refusé, ce qui est le but du garde-fou.
+  case "$f" in
+    source-filestorage/*) continue ;;
+  esac
+
   # ── Barrière 1 : chemins ────────────────────────────────────────────────────
   case "$f" in
-    lake/*|logs/*|*_quarantaine/*|.env|*/.env|*source-filestorage/*)
+    lake/*|logs/*|*_quarantaine/*|.env|*/.env)
       echo "REFUS  $f"
       echo "       zone de données ou secret — ne doit pas être versionné."
       fail=1

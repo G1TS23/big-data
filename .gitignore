@@ -6,16 +6,29 @@
 *.pem
 
 # ─── Données ──────────────────────────────────────────────────────────────────
-# Aucune donnée patient ne doit entrer dans le dépôt, même pseudonymisée.
-# Les données sources restent dans le filestorage du CHU (lecture seule, hors dépôt).
+# Rien de ce que le pipeline PRODUIT n'entre dans le dépôt : le lake, les
+# journaux et la quarantaine se reconstruisent à partir des sources.
 lake/
 logs/
 _quarantaine/
-source-filestorage/
+
+# Aucun fichier de données par défaut, pour qu'un export échappé ne s'y glisse pas.
 *.csv
 *.parquet
 *.jsonl
-# Exception : fixtures de test, synthétiques et anonymisées.
+
+# Trois exceptions, et seulement trois.
+#
+# Le dépôt quotidien du CHU est versionné à la demande de l'enseignant, qui
+# fournit ces données et corrigera le projet : cloner le dépôt et lancer le
+# pipeline doit suffire, sans se procurer les fichiers ailleurs. Elles sont
+# synthétiques — aucun patient réel n'y figure — mais elles portent des NIR et
+# des noms de forme réaliste, et le pipeline les traite donc EXACTEMENT comme
+# si elles étaient réelles : pseudonymisation dès l'entrée du lake, et rien
+# d'identifiant au-delà.
+!source-filestorage/**
+
+# Les fixtures de test, synthétiques et réduites.
 !tests/fixtures/**/*.csv
 !tests/fixtures/**/*.parquet
 !tests/fixtures/**/*.jsonl

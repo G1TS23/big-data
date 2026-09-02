@@ -78,15 +78,19 @@ Attendu à ce chemin :
 
 ```
 source-filestorage/
-├── patients/<AAAA-MM-JJ>/patients.csv
-├── sejours/<AAAA-MM-JJ>/sejours.csv
-├── diagnostics/<AAAA-MM-JJ>/diagnostics.json
-├── monitoring/<AAAA-MM-JJ>/monitoring.parquet
+├── patients/<AAAA-MM-JJ>/patients.csv        16 200 lignes sur trois jours
+├── sejours/<AAAA-MM-JJ>/sejours.csv          15 000 séjours
+├── diagnostics/<AAAA-MM-JJ>/diagnostics.json 37 380 codes, JSON imbriqué
+├── monitoring/<AAAA-MM-JJ>/monitoring.parquet 66 677 relevés
 └── referentiels/<AAAA-MM-JJ>/{services,cim10}.csv
 ```
 
-La suite de tests, elle, tourne sans ces données : `tests/fixtures/` contient des
-échantillons synthétiques et anonymisés.
+Les fichiers sont conservés **octet pour octet** — `.gitattributes` interdit à
+Git de normaliser leurs fins de ligne, faute de quoi un dépôt cloné recevrait
+une version réécrite et les contrôles de copie fidèle du lake tomberaient.
+
+La suite de tests, elle, tourne sans eux : `tests/fixtures/` contient des
+échantillons réduits.
 
 ## Conformité
 

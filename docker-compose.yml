@@ -77,7 +77,7 @@ services:
     volumes:
       # Le dépôt du CHU est monté en LECTURE SEULE : le conteneur ne peut pas
       # altérer la source, même par erreur de programmation.
-      - ${EDS_SOURCE_PATH:-../eds-chu-sujet/source-filestorage}:/filestorage:ro
+      - ./source-filestorage:/filestorage:ro
       - ./lake:/app/lake
       - ./logs:/app/logs
       # Règles et scripts montés depuis le disque : les ajuster ne demande pas

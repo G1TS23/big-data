@@ -1,0 +1,11 @@
+# Le dépôt du CHU est conservé OCTET POUR OCTET.
+#
+# Ses CSV arrivent en CRLF. Git normaliserait les fins de ligne au passage, si
+# bien qu'un dépôt cloné ne recevrait pas les fichiers déposés par l'hôpital
+# mais une version réécrite — et les contrôles de copie fidèle du lake, qui
+# comparent les octets, tomberaient.
+source-filestorage/**   -text
+
+# Même raison pour les fixtures : elles servent de référence à des comparaisons
+# octet à octet.
+tests/fixtures/**       -text
