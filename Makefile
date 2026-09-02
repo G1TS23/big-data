@@ -1,6 +1,6 @@
 # Raccourcis d'exploitation. Les commandes restent utilisables telles quelles
 # sans make ; voir docs/EXPLOITATION.md.
-.PHONY: aide env socle pipeline tests verrou capture
+.PHONY: aide env socle pipeline tests verrou capture rapport livrables
 
 aide:
 	@echo "env       écrit .env, sel et mots de passe tirés au sort"
@@ -9,6 +9,8 @@ aide:
 	@echo "tests     lance la suite"
 	@echo "verrou    régénère requirements.lock, empreintes comprises"
 	@echo "capture   régénère l'image de la démonstration du cloisonnement"
+	@echo "rapport   assemble les documents en un PDF, hors du dépôt"
+	@echo "livrables rapport PDF + archive du dépôt, dans ../rendu/"
 
 # N'écrase jamais un .env existant : les secrets en place sont irremplaçables
 # (changer EDS_SALT casse la continuité des pseudonymes).
@@ -38,3 +40,17 @@ capture:
 	./.venv/bin/eds acces > docs/img/acces.txt || true
 	./.venv/bin/python docs/outils/capture_terminal.py docs/img/acces.txt docs/img/cloisonnement-eds-acces.png
 	@rm -f docs/img/acces.txt
+
+# ─── Les deux livrables ──────────────────────────────────────────────────────
+# Le rendu attend le dépôt ET un rapport lisible sans lui. Les deux sortent
+# dans ../rendu/, hors du dépôt : un livrable ne se versionne pas lui-même.
+rapport:
+	python3 docs/outils/rapport.py
+
+# git archive, et non zip : seul ce qui est VERSIONNÉ part: ni .venv, ni lake,
+# ni logs, ni .env — les mêmes fichiers que ce qu'un correcteur obtient en
+# clonant, ce qui rend l'archive et le dépôt indiscernables.
+livrables: rapport
+	mkdir -p ../rendu
+	git archive --format=zip --prefix=eds-chu/ -o ../rendu/eds-chu-depot.zip HEAD
+	@ls -lh ../rendu/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'

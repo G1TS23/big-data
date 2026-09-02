@@ -137,7 +137,7 @@ localisable :
 | **silver** | appliquer les règles métier | servir des indicateurs |
 | **gold** | servir un usage, cloisonné | contenir la vérité |
 
-Bronze reproduit la source **ligne pour ligne** sur les neuf tables — c'est
+Bronze reproduit la source **ligne pour ligne** sur les six tables — c'est
 vérifié à chaque exécution. Un écart entre la source et un indicateur se localise
 donc immédiatement : soit la copie, soit une règle, jamais les deux à la fois.
 
@@ -360,25 +360,33 @@ montre le compte de recherche, `recherche@chu.local` / `bi_recherche`.
 **Étage restitution — Metabase.** Il ne voit que sa collection ; le tableau de
 bord Pilotage lui est refusé.
 
-| ce qu'il voit | ce qui lui est refusé |
-|---|---|
-| ![Accueil recherche](img/acces-metabase-recherche-accueil.png) | ![Pilotage refusé](img/acces-metabase-pilotage-refuse.png) |
+*Ce qu'il voit* — sa collection, et rien d'autre.
+
+![Accueil du compte recherche](img/acces-metabase-recherche-accueil.png)
+
+*Ce qui lui est refusé* — le tableau de bord Pilotage.
+
+![Tableau de bord Pilotage refusé](img/acces-metabase-pilotage-refuse.png)
 
 **Étage moteur — ClickHouse.** C'est le contrôle qui compte vraiment : même en
 écrivant sa propre requête, le compte de recherche ne peut pas contourner le
 seuil de diffusion. La vue de cohortes lui est ouverte, la table silver qui
 l'alimente lui est fermée.
 
-| `gold_recherche.coh_prevalence` — autorisé | `silver.dim_patient` — refusé |
-|---|---|
-| ![Cohorte autorisée](img/acces-clickhouse-cohorte-autorisee.png) | ![Silver refusé](img/acces-clickhouse-silver-refuse.png) |
+*Autorisé* — `gold_recherche.coh_prevalence`, la vue de cohortes.
 
-La capture de gauche montre le **seuil de diffusion à l'œuvre** : 11 pathologies
+![Requête autorisée sur la vue de cohortes](img/acces-clickhouse-cohorte-autorisee.png)
+
+*Refusé* — `silver.dim_patient`, la table qui l'alimente.
+
+![Requête refusée sur silver](img/acces-clickhouse-silver-refuse.png)
+
+La requête autorisée montre le **seuil de diffusion à l'œuvre** : 11 pathologies
 sont renvoyées alors que le référentiel en compte 13. `G12` passe avec ses
 8 patients ; `E84` (4 patients) et `Q90` (3) sont supprimées. Personne n'a eu à
 le demander — c'est la vue qui l'impose.
 
-Celle de droite est la garantie que ce seuil ne se contourne pas :
+Le refus qui suit est la garantie que ce seuil ne se contourne pas :
 
 ```
 Code: 497. bi_recherche: Not enough privileges. […] ON silver.dim_patient.
@@ -397,7 +405,7 @@ séjour porte une date de sortie antérieure à l'admission et a été écarté.
 information clinique survit — ils sont dans `fait_diagnostic` avec 94 codes —
 mais leur séjour non. La limite est mesurée, l'alternative chiffrée, et le choix
 réversible : voir
-[VALIDATION.md § Les 51 patients sans séjour](VALIDATION.md#les-51-patients-sans-séjour).
+la [validation des chiffres, « Les 51 patients sans séjour »](VALIDATION.md#les-51-patients-sans-séjour).
 
 ### Ce qui demande une relecture médicale
 

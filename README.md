@@ -171,6 +171,25 @@ sql/dashboards/  requêtes des cartes, versionnées
 config/dashboards.yml  spécification des tableaux de bord
 ```
 
+## Les deux livrables
+
+Le rendu se compose du dépôt et d'un rapport lisible sans lui. Les deux se
+fabriquent d'une commande, et sortent hors du dépôt — un livrable ne se
+versionne pas lui-même :
+
+```bash
+make livrables        # ../rendu/rapport-eds-chu.pdf + ../rendu/eds-chu-depot.zip
+```
+
+Le **rapport** assemble les trois documents de `docs/`, images et schémas
+compris, en un PDF d'une quarantaine de pages. Il est produit *depuis* ces
+documents, donc il ne peut pas en diverger. Chrome l'imprime en mode headless :
+c'est le seul moteur qui rende les schémas Mermaid.
+
+L'**archive** est faite par `git archive`, et non par `zip` : seul ce qui est
+versionné y entre — ni `.venv`, ni `lake/`, ni `logs/`, ni `.env`. Le correcteur
+y trouve exactement ce qu'un `git clone` lui donnerait, données du CHU comprises.
+
 ## Documentation
 
 - [Dossier de conception](docs/DOSSIER.md) — Partie 1 (besoin, architecture, traitements, indicateurs, limites) et l'évolution demandée par le CHU
