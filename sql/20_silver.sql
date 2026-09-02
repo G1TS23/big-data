@@ -122,6 +122,33 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(ts)
 ORDER BY (stay_id, ts);
 
+-- ─── Le séjour tel que bronze le connaît ────────────────────────────────────
+-- fait_diagnostic se rattache ici plutôt qu'à fait_sejour : une date de sortie
+-- fautive ne doit pas emporter le diagnostic. La vue ne retient que ce qui est
+-- indispensable pour rattacher un code — un séjour identifiable et un patient
+-- connu — et laisse de côté tout jugement sur les dates de sortie.
+--
+-- argMax sur _ingestion_date : si le CHU redépose un séjour corrigé, c'est la
+-- version la plus récente qui fait foi, exactement comme dans fait_sejour.
+CREATE OR REPLACE VIEW silver.sejour_recevable AS
+SELECT v.stay_id                                    AS stay_id,
+       v.patient_key                                AS patient_key,
+       v.admission_ts                               AS admission_ts,
+       -- Âge ATTEINT dans l'année de l'admission : la date de naissance est
+       -- généralisée à l'année dès l'entrée du lake.
+       toInt16(toYear(v.admission_ts)) - toInt16(p.birth_year) AS age_a_admission
+FROM (
+    -- « b. » en WHERE : sans la qualification, admission_ts se résoudrait sur
+    -- l'alias de l'argMax, et le moteur refuse un agrégat dans un WHERE.
+    SELECT stay_id,
+           argMax(patient_key, _ingestion_date)  AS patient_key,
+           argMax(admission_ts, _ingestion_date) AS admission_ts
+    FROM bronze.sejours AS b
+    WHERE b.admission_ts IS NOT NULL
+    GROUP BY stay_id
+) AS v
+INNER JOIN silver.dim_patient AS p ON p.patient_key = v.patient_key;
+
 -- ─── Reconstruction ─────────────────────────────────────────────────────────
 --
 -- Les tables sont vidées avant d'être réécrites. Une panne au milieu laisse
@@ -272,10 +299,20 @@ FROM (
 
 -- ─── fait_diagnostic ────────────────────────────────────────────────────────
 -- Le JSON imbriqué est aplati ici, par le moteur : une ligne par code posé.
+--
+-- Le rattachement se fait sur BRONZE et non sur silver.fait_sejour. Une faute
+-- de saisie sur une date de sortie n'invalide pas le diagnostic : le patient a
+-- bien été hospitalisé, le code a bien été posé. Joindre le fait épuré ferait
+-- disparaître 127 codes cliniques pour une erreur qui ne les concerne pas.
+--
+-- Le prix à payer est assumé et mesuré : ces codes portent un stay_id absent de
+-- fait_sejour, donc toute requête qui joint les deux faits les perdra. Le
+-- contrôle « diagnostic_sans_sejour_retenu » du bilan qualité les compte, pour
+-- que la perte soit lue et non subie.
 
 INSERT INTO ops.rejects (run_id, table_source, cle, regle, valeur)
 SELECT {b:String}, 'fait_diagnostic', concat(stay_id, '/', code),
-       if(stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour),
+       if(stay_id NOT IN (SELECT stay_id FROM silver.sejour_recevable),
           'sejour_inconnu', 'code_cim10_inconnu'),
        code
 FROM (
@@ -285,13 +322,13 @@ FROM (
     SELECT stay_id, d.code_cim10 AS code
     FROM bronze.diagnostics ARRAY JOIN diagnostics AS d
 )
-WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour)
+WHERE stay_id NOT IN (SELECT stay_id FROM silver.sejour_recevable)
    OR code   NOT IN (SELECT code_cim10 FROM silver.dim_cim10);
 
 INSERT INTO silver.fait_diagnostic
     (stay_id, patient_key, code_cim10, tranche_age, type_diagnostic,
      est_principal, _batch_id)
-SELECT a.stay_id, s.patient_key, a.code,
+SELECT a.stay_id, b.patient_key, a.code,
        -- Tranches cliniques, définies ICI et nulle part ailleurs. Volontairement
        -- dans le modèle et non en configuration : c'est la granularité de
        -- diffusion de la recherche, pas un réglage.
@@ -302,10 +339,10 @@ SELECT a.stay_id, s.patient_key, a.code,
        -- ajoute — une rampe d'une seule teinte, seul codage sûr pour un axe
        -- ordonné et pour les daltoniens, n'offre pas assez d'écart de clarté
        -- pour six pas : le sixième devenait indistinguable du cinquième.
-       multiIf(s.age_a_admission < 18, '00-17',
-               s.age_a_admission < 65, '18-64',
-               s.age_a_admission < 75, '65-74',
-               s.age_a_admission < 85, '75-84',
+       multiIf(b.age_a_admission < 18, '00-17',
+               b.age_a_admission < 65, '18-64',
+               b.age_a_admission < 75, '65-74',
+               b.age_a_admission < 85, '75-84',
                                        '85+') AS tranche_age,
        a.type_diagnostic,
        toUInt8(a.type_diagnostic = 'principal'), {b:String}
@@ -316,7 +353,7 @@ FROM (
     SELECT stay_id, d.code_cim10 AS code, d.type AS type_diagnostic
     FROM bronze.diagnostics ARRAY JOIN diagnostics AS d
 ) AS a
-INNER JOIN silver.fait_sejour AS s ON s.stay_id = a.stay_id
+INNER JOIN silver.sejour_recevable AS b ON b.stay_id = a.stay_id
 WHERE a.code IN (SELECT code_cim10 FROM silver.dim_cim10);
 
 -- ─── fait_monitoring ────────────────────────────────────────────────────────
@@ -426,3 +463,13 @@ INSERT INTO ops.data_quality
     (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
 SELECT {b:String}, 'fait_sejour', 'sejour_en_cours', 'SIGNALEMENT',
        count(), countIf(est_en_cours = 1) FROM silver.fait_sejour;
+
+-- Les diagnostics rattachés à un séjour que fait_sejour a écarté. Ils sont
+-- CONSERVÉS — c'est le choix assumé de rattacher les diagnostics à bronze —
+-- mais toute requête qui joint les deux faits les perdra. Les compter ici rend
+-- cette perte lisible plutôt que silencieuse.
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'fait_diagnostic', 'diagnostic_sans_sejour_retenu', 'SIGNALEMENT',
+       count(), countIf(stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour))
+FROM silver.fait_diagnostic;

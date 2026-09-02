@@ -189,10 +189,30 @@ class TestIntegriteReferentielle:
         assert scalar(ch, "SELECT count() FROM silver.fait_sejour "
                           "WHERE patient_key NOT IN (SELECT patient_key FROM silver.dim_patient)") == 0
 
-    def test_tout_diagnostic_pointe_un_sejour_et_un_code_connus(self, ch):
+    def test_tout_diagnostic_pointe_un_code_et_un_sejour_de_bronze(self, ch):
+        """Le diagnostic se rattache au séjour tel que BRONZE le connaît.
+
+        Une faute de saisie sur une date de sortie n'invalide pas le diagnostic :
+        le patient a bien été hospitalisé, le code a bien été posé. La contrainte
+        porte donc sur silver.sejour_recevable — séjour identifiable, patient
+        connu — et non sur fait_sejour, qui juge les dates."""
         assert scalar(ch, "SELECT count() FROM silver.fait_diagnostic "
-                          "WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour) "
+                          "WHERE stay_id NOT IN (SELECT stay_id FROM silver.sejour_recevable) "
                           "OR code_cim10 NOT IN (SELECT code_cim10 FROM silver.dim_cim10)") == 0
+
+    def test_les_diagnostics_orphelins_sont_comptes(self, ch, dernier_run):
+        """La contrepartie du choix précédent : certains diagnostics portent un
+        séjour que fait_sejour a écarté, et toute requête joignant les deux faits
+        les perdra. Le contrôle qualité doit les compter exactement, pour que la
+        perte soit lue et non subie."""
+        orphelins = scalar(ch, "SELECT countIf(stay_id NOT IN "
+                               "(SELECT stay_id FROM silver.fait_sejour)) "
+                               "FROM silver.fait_diagnostic")
+        assert scalar(ch, "SELECT lignes_concernees FROM ops.data_quality "
+                          "WHERE run_id = {r:String} "
+                          "AND regle = 'diagnostic_sans_sejour_retenu'",
+                      r=dernier_run) == orphelins
+        assert orphelins > 0, "sans orphelin, le contrôle passerait à vide"
 
     def test_tout_releve_pointe_un_sejour_connu(self, ch):
         assert scalar(ch, "SELECT count() FROM silver.fait_monitoring "

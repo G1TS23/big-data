@@ -73,7 +73,7 @@ python docs/outils/reconcilier.py
 |---|---:|---:|---:|---:|---:|:--:|
 | patients | 18 000 | 18 000 | 6 000 | 0 | 12 000 | ✓ |
 | sejours | 6 797 | 6 797 | 6 729 | 68 | 0 | ✓ |
-| diagnostics | 12 720 | 12 720 | 12 593 | 127 | 0 | ✓ |
+| diagnostics | 12 720 | 12 720 | 12 720 | 0 | 0 | ✓ |
 | monitoring | 41 778 | 41 778 | 40 400 | 1 378 | 0 | ✓ |
 | services | 8 | 8 | 8 | 0 | 0 | ✓ |
 | cim10 | 13 | 13 | 13 | 0 | 0 | ✓ |
@@ -106,12 +106,33 @@ déclenche : pas d'admission absente, pas de service inconnu, pas de patient
 inconnu. Le référentiel des services couvre l'intégralité des séjours, et tous
 les `patient_id` cités trouvent leur patient.
 
-### Diagnostics : 127 rejets, tous en cascade
+### Diagnostics : aucun rejet, et un rattachement à bronze
 
-Les 127 codes rejetés portent le motif `sejour_inconnu` et se rattachent **tous**
-aux 68 séjours rejetés à l'étape précédente. Aucun diagnostic ne cite un séjour
-qui n'existerait nulle part : c'est la propagation attendue, un séjour incohérent
-emportant ses diagnostics.
+Les 12 720 codes passent intégralement en silver. C'est un choix explicite, et
+il mérite d'être défendu.
+
+Un diagnostic ne se rattache **pas** à `silver.fait_sejour` mais à
+`silver.sejour_recevable`, une vue sur bronze qui ne demande que deux choses :
+un séjour identifiable et un patient connu. Elle ne juge pas les dates.
+
+La raison : **une faute de saisie sur une date de sortie n'invalide pas le
+diagnostic.** Le patient a bien été hospitalisé, le code a bien été posé par un
+médecin. Les 68 séjours écartés pour `sortie_avant_admission` portent 127 codes
+cliniques ; les joindre au fait épuré les aurait fait disparaître pour une
+erreur qui ne les concerne pas. Ces 68 séjours sont d'ailleurs sains par
+ailleurs — patient connu, service connu, modes d'entrée et de sortie
+renseignés — et leur sortie n'est antérieure que de 0 jour (53 cas, même
+journée) ou 1 jour (15 cas).
+
+**La contrepartie est réelle et mesurée.** Ces 127 codes portent un `stay_id`
+absent de `fait_sejour` : toute requête joignant les deux faits les perdra. Le
+contrôle `diagnostic_sans_sejour_retenu` les compte à chaque exécution, et un
+test vérifie que le compte est exact — la perte est lue, pas subie.
+
+Concrètement, sur les six vues de recherche, une seule joint `fait_sejour` :
+`coh_duree_pathologie`, qui a besoin d'une durée. Elle écarte donc ces 127
+codes, ce qui est correct : sans date de sortie exploitable, il n'y a pas de
+durée à moyenner. Les cinq autres vues les intègrent.
 
 ### Monitoring : 1 378 rejets, deux motifs à ne pas confondre
 
@@ -149,6 +170,7 @@ voir.
 | `admission_apres_deces` | 133 | 6 729 | 2,0 % |
 | `releve_en_alerte` | 3 270 | 40 400 | 8,1 % |
 | `sejours_chevauchants` | **0** | 6 729 | 0 % |
+| `diagnostic_sans_sejour_retenu` | 127 | 12 720 | 1,0 % |
 | `mode_sortie_manquant` | **0** | 6 046 clos | 0 % |
 
 Les deux derniers valent zéro sur ce jeu, et **les contrôles restent en place**.
