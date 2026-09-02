@@ -76,3 +76,36 @@ def test_les_paquets_compiles_couvrent_les_deux_architectures(paquet, verrou):
     assert len(verrou[paquet]) >= 2, (
         f"{paquet} n'a qu'une empreinte : le verrou est lié à une architecture. "
         "Régénérer avec `make verrou`.")
+
+
+# ── Portabilité des modules ──────────────────────────────────────────────────
+# Le pipeline se lance depuis un poste Windows comme depuis un Mac. Un import
+# de module POSIX au premier niveau casse TOUTES les commandes, y compris celles
+# qui n'ont rien à voir : « eds init » est mort sur un import fcntl fait au
+# chargement de eds.verrou, lui-même importé par eds.cli.
+POSIX_SEULEMENT = {"fcntl", "pwd", "grp", "termios", "resource", "posix", "syslog"}
+
+EDS = RACINE / "eds"
+
+
+def imports_au_premier_niveau(source: str) -> set[str]:
+    """Les modules importés hors de toute condition — donc sur tout système."""
+    import ast
+
+    trouves: set[str] = set()
+    for noeud in ast.parse(source).body:          # body seul : pas les if/try
+        if isinstance(noeud, ast.Import):
+            trouves.update(alias.name.split(".")[0] for alias in noeud.names)
+        elif isinstance(noeud, ast.ImportFrom) and noeud.module and noeud.level == 0:
+            trouves.add(noeud.module.split(".")[0])
+    return trouves
+
+
+@pytest.mark.parametrize("module", sorted(p.name for p in EDS.glob("*.py")))
+def test_aucun_module_posix_importe_sans_condition(module):
+    source = (EDS / module).read_text(encoding="utf-8")
+    fautifs = imports_au_premier_niveau(source) & POSIX_SEULEMENT
+    assert not fautifs, (
+        f"eds/{module} importe {sorted(fautifs)} au premier niveau : "
+        "le module doit être importable sous Windows. Placer l'import dans une "
+        "branche conditionnelle, comme le fait eds/verrou.py.")
