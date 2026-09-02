@@ -121,7 +121,8 @@ La suite de tests, elle, ne dépend pas d'eux : `tests/fixtures/` contient des
 | Dépendances figées | `requirements.lock` épingle les versions résolues, pour que deux constructions donnent la même image |
 
 Le sel (`EDS_SALT`) n'est pas versionné : une réinstallation produit des pseudonymes
-différents des nôtres. C'est le comportement attendu — voir `docs/EXPLOITATION.md`.
+différents des nôtres. C'est le comportement attendu — voir le
+[guide d'exploitation](docs/EXPLOITATION.md).
 
 ## Structure
 
@@ -137,13 +138,16 @@ eds/         orchestrateur — un module par étape du pipeline :
              trois cents de SQL, c'est la preuve que le calcul est resté dans
              le moteur.
 tests/       tests des règles métier et de la pseudonymisation
-docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2) · captures
+docs/        DOSSIER.md (Partie 1) · EXPLOITATION.md (Partie 2)
+             VALIDATION.md (réconciliation et recalculs) · captures
+             outils/ reconcilier.py, generer_env.py, capture_terminal.py,
+                     verrouiller.py
 sql/dashboards/  requêtes des cartes, versionnées
 config/dashboards.yml  spécification des tableaux de bord
 ```
 
 ## Documentation
 
-- `docs/DOSSIER.md` — besoin, architecture justifiée, traitements, indicateurs, limites
-- `docs/EXPLOITATION.md` — lancement, planification, reprise sur incident
-- `docs/VALIDATION.md` — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs
+- [Dossier de conception](docs/DOSSIER.md) — besoin, architecture justifiée, traitements, indicateurs, limites
+- [Guide d'exploitation](docs/EXPLOITATION.md) — lancement, planification, reprise sur incident
+- [Validation des chiffres](docs/VALIDATION.md) — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs
