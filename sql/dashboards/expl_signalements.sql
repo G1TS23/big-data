@@ -1,11 +1,7 @@
--- Présenté en TABLE et non en barres : deux de ces contrôles valent zéro sur le
--- jeu courant, et une barre de longueur nulle ne se voit pas. Le tableau montre
--- « 0 sur 6 046 », ce qui distingue un contrôle qui n'a rien trouvé d'un
--- contrôle qui n'existe plus.
-SELECT concat(table_cible, ' · ', regle) AS "Contrôle",
-       lignes_concernees                 AS "Concernées",
-       lignes_entree                     AS "Examinées",
-       round(100 * taux, 2)              AS "Part (%)"
+-- Les contrôles à zéro sont écartés de l'AFFICHAGE, pas de la mesure : ils
+-- tournent à chaque exécution et restent dans ops.data_quality, où le tableau
+-- de bord ne les montre simplement plus tant qu'ils ne trouvent rien.
+SELECT concat(table_cible, ' · ', regle) AS "Anomalie signalée", lignes_concernees AS "Lignes"
 FROM ops.data_quality
 WHERE run_id = (SELECT run_id FROM ops.run_log FINAL
                 WHERE command = 'silver' AND status = 'OK'
@@ -14,4 +10,5 @@ WHERE run_id = (SELECT run_id FROM ops.run_log FINAL
   -- Les readmission_exclue_* tracent la construction d'un indicateur, pas
   -- une anomalie des données : elles ont leur place dans ops, pas ici.
   AND regle NOT LIKE 'readmission_exclue_%'
+  AND lignes_concernees > 0
 ORDER BY lignes_concernees DESC

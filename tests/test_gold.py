@@ -296,11 +296,12 @@ class TestVolumetrieDeLExploitation:
 
 
 class TestCarteDesSignalements:
-    """Un contrôle à zéro doit RESTER sur la carte.
+    """La carte n'affiche que les contrôles ayant trouvé quelque chose.
 
-    Deux signalements valent zéro sur le jeu courant. La tentation est de les
-    masquer ; ce serait rendre indistinguables « aucune anomalie » et « plus
-    personne ne mesure ». Le jeu précédent affichait 53,7 % de séjours
+    C'est un choix d'affichage, et il ne doit pas déteindre sur la mesure : les
+    contrôles à zéro continuent de tourner et restent dans ops.data_quality.
+    Sans cette garantie, « aucune anomalie » deviendrait indistinguable de
+    « plus personne ne mesure » — le jeu précédent affichait 53,7 % de séjours
     chevauchants, et c'est cette mesure qui a permis de le dire.
     """
 
@@ -309,18 +310,24 @@ class TestCarteDesSignalements:
     def lignes(self, ch):
         return ch.query(self.CARTE.read_text(encoding="utf-8")).result_rows
 
-    def test_la_carte_montre_tous_les_signalements(self, ch):
-        run = scalar(ch, "SELECT run_id FROM ops.run_log FINAL WHERE command = 'silver' "
-                         "AND status = 'OK' ORDER BY started_at DESC LIMIT 1")
+    def test_la_carte_n_affiche_aucun_zero(self, ch):
+        assert all(l[1] > 0 for l in self.lignes(ch))
+
+    def test_la_mesure_survit_a_l_affichage(self, ch):
+        """Le point qui compte : les contrôles à zéro sont TOUJOURS calculés."""
+        zeros = scalar(ch, "SELECT count() FROM ops.data_quality "
+                           "WHERE run_id = (SELECT run_id FROM ops.run_log FINAL "
+                           "WHERE command = 'silver' AND status = 'OK' "
+                           "ORDER BY started_at DESC LIMIT 1) "
+                           "AND traitement = 'SIGNALEMENT' AND lignes_concernees = 0")
+        assert zeros > 0, ("aucun contrôle à zéro dans ops : ils ont été supprimés, "
+                           "et non simplement masqués sur le tableau de bord")
+
+    def test_la_carte_montre_tous_les_controles_non_nuls(self, ch):
         attendus = scalar(ch, "SELECT count() FROM ops.data_quality "
-                              "WHERE run_id = {r:String} AND traitement = 'SIGNALEMENT' "
-                              "AND regle NOT LIKE 'readmission_exclue_%'", r=run)
+                              "WHERE run_id = (SELECT run_id FROM ops.run_log FINAL "
+                              "WHERE command = 'silver' AND status = 'OK' "
+                              "ORDER BY started_at DESC LIMIT 1) "
+                              "AND traitement = 'SIGNALEMENT' AND lignes_concernees > 0 "
+                              "AND regle NOT LIKE 'readmission_exclue_%'")
         assert len(self.lignes(ch)) == attendus
-
-    def test_les_controles_a_zero_sont_conserves(self, ch):
-        zeros = [l for l in self.lignes(ch) if l[1] == 0]
-        assert zeros, "aucun contrôle à zéro : ce garde-fou ne prouve plus rien"
-
-    def test_chaque_ligne_porte_sa_base(self, ch):
-        """Sans le dénominateur, « 0 » ne dit pas si le contrôle a tourné."""
-        assert all(l[2] > 0 for l in self.lignes(ch))

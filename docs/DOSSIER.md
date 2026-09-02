@@ -329,9 +329,11 @@ quand quelque chose casse.
 ![Tableau de bord Exploitation](img/tdb-exploitation.png)
 
 On y lit la fraîcheur des données, les dernières exécutions avec leur statut et
-leurs compteurs, les deux règles de rejet et les onze signalements. Deux d'entre
-eux valent zéro : le contrôle reste affiché, faute de quoi « aucune anomalie » ne
-se distinguerait plus de « plus personne ne mesure ».
+leurs compteurs, les deux règles de rejet et les signalements ayant trouvé
+quelque chose. Deux contrôles valent zéro sur ce jeu et n'apparaissent donc pas ;
+ils tournent pourtant à chaque exécution et restent dans `ops.data_quality`, où
+l'on vérifie qu'« aucune anomalie » ne s'est pas changé en « plus personne ne
+mesure ».
 
 Deux choix de lisibilité méritent d'être dits. Les tranches d'âge sont un axe
 **ordonné** : elles utilisent une rampe d'une seule teinte, du clair au foncé —

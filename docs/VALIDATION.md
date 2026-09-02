@@ -183,7 +183,8 @@ voir.
 | `service_sans_description` | 1 | 8 | 12,5 % |
 | `mode_sortie_manquant` | **0** | 6 046 clos | 0 % |
 
-Les deux derniers valent zéro sur ce jeu, et **les contrôles restent en place**.
+Les deux derniers valent zéro sur ce jeu, et **les contrôles restent en place** —
+le tableau de bord ne les affiche simplement plus tant qu'ils ne trouvent rien.
 Une livraison antérieure présentait 53,7 % de séjours chevauchants et 14,4 % de
 modes de sortie manquants ; la mesure est ce qui a permis de le dire. La
 supprimer parce qu'elle affiche zéro rendrait indistinguables « aucune anomalie »
