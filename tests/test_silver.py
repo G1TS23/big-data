@@ -68,19 +68,32 @@ def dernier_run(ch):
 
 class TestQualite:
     def test_deduplication_des_patients(self, ch):
-        """16 200 lignes livrées sur trois jours pour 6 000 patients réels."""
-        assert scalar(ch, "SELECT count() FROM silver.dim_patient") == 6000
-        assert scalar(ch, "SELECT count() FROM bronze.patients") == 16200
+        """Le CHU livre des instantanés qui se recouvrent : dim_patient doit
+        contenir exactement les identifiants distincts, pas les lignes reçues.
+        Les volumes attendus sont dans tests/test_reconciliation.py."""
+        distincts = scalar(ch, "SELECT uniqExact(patient_key) FROM bronze.patients "
+                               "WHERE patient_key != ''")
+        assert scalar(ch, "SELECT count() FROM silver.dim_patient") == distincts
+        assert scalar(ch, "SELECT count() FROM bronze.patients") > distincts
 
     def test_sejours_incoherents_ecartes(self, ch, dernier_run):
-        assert scalar(ch, "SELECT count() FROM silver.fait_sejour") == 14864
+        """Autant de rejets que de séjours dont la sortie précède l'admission —
+        la comparaison porte sur les HORODATAGES, non sur les dates."""
+        incoherents = scalar(ch, "SELECT countIf(discharge_ts < admission_ts) "
+                                 "FROM bronze.sejours")
         assert scalar(ch, "SELECT count() FROM ops.rejects WHERE run_id = {r:String} "
                           "AND table_source='fait_sejour' AND regle='sortie_avant_admission'",
-                      r=dernier_run) == 136
+                      r=dernier_run) == incoherents
+        assert scalar(ch, "SELECT countIf(discharge_ts < admission_ts) "
+                          "FROM silver.fait_sejour") == 0
 
     def test_sejours_en_cours_conserves(self, ch):
-        """Un patient encore hospitalisé n'est pas une anomalie."""
-        assert scalar(ch, "SELECT countIf(est_en_cours = 1) FROM silver.fait_sejour") == 1190
+        """Un patient encore hospitalisé n'est pas une anomalie : il est conservé
+        et marqué, jamais rejeté."""
+        en_cours = scalar(ch, "SELECT countIf(est_en_cours = 1) FROM silver.fait_sejour")
+        assert en_cours > 0
+        assert en_cours == scalar(ch, "SELECT countIf(discharge_ts IS NULL) "
+                                      "FROM silver.fait_sejour")
         assert scalar(ch, "SELECT countIf(discharge_ts IS NULL AND est_en_cours = 0) "
                           "FROM silver.fait_sejour") == 0
 
@@ -117,7 +130,7 @@ class TestDiagnosticsAplatis:
     def test_les_diagnostics_ne_sont_pas_vides(self, ch):
         """Un contrôle d'intégrité passe À VIDE : « aucune ligne invalide » est
         vrai sur une table sans lignes. Il faut donc l'affirmer séparément."""
-        assert scalar(ch, "SELECT count() FROM silver.fait_diagnostic") > 30000
+        assert scalar(ch, "SELECT count() FROM silver.fait_diagnostic") > 0
 
     def test_le_type_de_diagnostic_appartient_a_son_domaine(self, ch):
         """Le test qui attrape une inversion du tuple : si code et type étaient
@@ -257,26 +270,35 @@ class TestOccupationBornee:
 class TestAnomaliesSignalees:
     def test_chevauchements_signales_et_non_rejetes(self, ch, dernier_run):
         """L'anomalie porte sur la relation entre deux séjours : en écarter un
-        au hasard fabriquerait une erreur au lieu d'en corriger une."""
-        signales = scalar(ch, "SELECT countIf(est_chevauchant = 1) FROM silver.fait_sejour")
-        assert signales > 0
+        au hasard fabriquerait une erreur au lieu d'en corriger une.
+
+        Le contrôle doit exister et compter juste MÊME À ZÉRO — un jeu de
+        données assaini ne doit pas faire disparaître la mesure, sans quoi on ne
+        saurait plus distinguer « aucun chevauchement » de « plus personne ne
+        regarde »."""
         assert scalar(ch, "SELECT count() FROM ops.rejects "
                           "WHERE regle LIKE '%chevauch%'") == 0
-        assert scalar(ch, "SELECT count() FROM ops.data_quality WHERE run_id = {r:String} "
-                          "AND regle = 'sejours_chevauchants' AND traitement = 'SIGNALEMENT'",
-                      r=dernier_run) == 1
+        assert scalar(ch, "SELECT lignes_concernees FROM ops.data_quality "
+                          "WHERE run_id = {r:String} AND regle = 'sejours_chevauchants' "
+                          "AND traitement = 'SIGNALEMENT'", r=dernier_run) == scalar(
+            ch, "SELECT countIf(est_chevauchant = 1) FROM silver.fait_sejour")
 
-    def test_admissions_apres_deces_signalees(self, ch):
-        assert scalar(ch, "SELECT countIf(est_apres_deces = 1) FROM silver.fait_sejour") > 0
+    def test_admissions_apres_deces_signalees(self, ch, dernier_run):
+        assert scalar(ch, "SELECT lignes_concernees FROM ops.data_quality "
+                          "WHERE run_id = {r:String} AND regle = 'admission_apres_deces'",
+                      r=dernier_run) == scalar(
+            ch, "SELECT countIf(est_apres_deces = 1) FROM silver.fait_sejour")
+        assert scalar(ch, "SELECT count() FROM ops.rejects "
+                          "WHERE regle LIKE '%deces%'") == 0
 
     def test_mode_de_sortie_manquant_signale(self, ch, dernier_run):
-        """1 975 séjours clos sans mode de sortie : trou des données source, pas
-        du traitement. Le contrôle les rend visibles, aucun n'est rejeté."""
-        assert scalar(ch, "SELECT countIf(est_en_cours = 0 AND discharge_mode = '') "
-                          "FROM silver.fait_sejour") == 1975
+        """Un séjour clos sans mode de sortie est un trou des données source, pas
+        du traitement : il est compté, jamais rejeté."""
         assert scalar(ch, "SELECT lignes_concernees FROM ops.data_quality "
                           "WHERE run_id = {r:String} AND regle = 'mode_sortie_manquant'",
-                      r=dernier_run) == 1975
+                      r=dernier_run) == scalar(
+            ch, "SELECT countIf(est_en_cours = 0 AND discharge_mode = '') "
+                "FROM silver.fait_sejour")
 
     def test_aucun_sejour_en_cours_ne_porte_de_mode_de_sortie(self, ch):
         """L'incohérence symétrique : sortir sans être sorti."""
@@ -311,4 +333,7 @@ class TestExclusionsDuTauxDeReadmission:
     def test_les_retours_post_mortem_existent_bel_et_bien(self, ch, dernier_run):
         """Sans cette assertion, le test précédent passerait sur zéro ligne."""
         _, deces = self.controle(ch, dernier_run, "retour_apres_deces_ecarte")
-        assert deces == 109
+        assert deces == scalar(ch, "SELECT countIf(est_apres_deces = 1 "
+                                   "AND jours_depuis_sortie_precedente BETWEEN 0 AND 30) "
+                                   "FROM silver.fait_sejour")
+        assert deces > 0

@@ -91,14 +91,18 @@ EDS_PLANIFICATION="*/2 * * * *" docker compose up -d scheduler   # accélérer, 
 Le dépôt quotidien du CHU est versionné dans `source-filestorage/`, à la demande
 du commanditaire : cloner puis lancer suffit, sans dépendance à un chemin externe.
 
-```
-source-filestorage/
-├── patients/<AAAA-MM-JJ>/patients.csv         16 200 lignes sur trois jours
-├── sejours/<AAAA-MM-JJ>/sejours.csv           15 000 séjours
-├── diagnostics/<AAAA-MM-JJ>/diagnostics.json  37 380 codes, JSON imbriqué
-├── monitoring/<AAAA-MM-JJ>/monitoring.parquet 66 677 relevés
-└── referentiels/<AAAA-MM-JJ>/{services,cim10}.csv
-```
+Chaque flux a son propre calendrier — 89 fichiers, 3,2 Mo :
+
+| flux | dépôts | période | volume |
+|---|---:|---|---:|
+| `sejours/<date>/sejours.csv` | 28 | 2026-08-01 → 08-28 | 6 797 séjours |
+| `diagnostics/<date>/diagnostics.json` | 28 | 2026-08-01 → 08-28 | 12 720 codes, JSON imbriqué |
+| `monitoring/<date>/monitoring.parquet` | 28 | 2026-08-01 → 08-28 | 41 778 relevés |
+| `patients/<date>/patients.csv` | 3 | 2026-08-26 → 08-28 | 6 000 patients, en instantanés |
+| `referentiels/<date>/{services,cim10}.csv` | 1 | 2026-08-01 | 8 services, 13 codes CIM-10 |
+
+Le détail des volumes et leur réconciliation couche par couche sont dans
+[la validation des chiffres](docs/VALIDATION.md).
 
 Ces fichiers sont **synthétiques**, et le commanditaire a confirmé par écrit
 qu'ils ne portent aucune donnée réelle. Le pipeline les traite néanmoins comme

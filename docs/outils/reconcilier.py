@@ -24,33 +24,44 @@ from eds.sql import connect  # noqa: E402
 
 
 def compter_source(racine: Path) -> dict[str, dict[str, int]]:
-    """Relit les fichiers déposés par le CHU, sans le pipeline."""
-    jours = sorted(p.name for p in (racine / "patients").iterdir() if p.is_dir())
+    """Relit les fichiers déposés par le CHU, sans le pipeline.
 
-    lignes_patients = 0
-    identifiants_patients: set[str] = set()
-    lignes_sejours = codes = releves = 0
+    Chaque flux a SON calendrier : le CHU dépose les séjours, diagnostics et
+    relevés tous les jours, les référentiels une fois, et les patients par
+    instantanés en fin de période. Parcourir les dates d'un flux pour en lire un
+    autre ne lirait qu'une partie des dépôts, en silence.
+    """
 
-    for jour in jours:
-        with (racine / "patients" / jour / "patients.csv").open(encoding="utf-8") as f:
-            for ligne in csv.DictReader(f):
-                lignes_patients += 1
-                identifiants_patients.add(ligne["patient_id"])
-        with (racine / "sejours" / jour / "sejours.csv").open(encoding="utf-8") as f:
-            lignes_sejours += sum(1 for _ in csv.DictReader(f))
-        objets = json.loads((racine / "diagnostics" / jour / "diagnostics.json").read_text("utf-8"))
-        codes += sum(len(o["diagnostics"]) for o in objets)
-        releves += pq.read_table(racine / "monitoring" / jour / "monitoring.parquet").num_rows
+    def depots(flux: str) -> list[Path]:
+        return sorted(p for p in (racine / flux).iterdir() if p.is_dir())
 
     def lignes_csv(chemin: Path) -> int:
         with chemin.open(encoding="utf-8") as f:
             return sum(1 for _ in csv.DictReader(f))
 
-    referentiels = racine / "referentiels" / jours[0]
+    lignes_patients = 0
+    identifiants: set[str] = set()
+    for depot in depots("patients"):
+        with (depot / "patients.csv").open(encoding="utf-8") as f:
+            for ligne in csv.DictReader(f):
+                lignes_patients += 1
+                identifiants.add(ligne["patient_id"])
+
+    lignes_sejours = sum(lignes_csv(d / "sejours.csv") for d in depots("sejours"))
+
+    codes = 0
+    for depot in depots("diagnostics"):
+        objets = json.loads((depot / "diagnostics.json").read_text("utf-8"))
+        codes += sum(len(o["diagnostics"]) for o in objets)
+
+    releves = sum(pq.read_table(d / "monitoring.parquet").num_rows
+                  for d in depots("monitoring"))
+
+    referentiels = depots("referentiels")[-1]
     return {
         # « doublons » : ce que la déduplication doit légitimement retirer.
         "patients": {"source": lignes_patients,
-                     "doublons": lignes_patients - len(identifiants_patients)},
+                     "doublons": lignes_patients - len(identifiants)},
         "sejours": {"source": lignes_sejours, "doublons": 0},
         "diagnostics": {"source": codes, "doublons": 0},
         "monitoring": {"source": releves, "doublons": 0},

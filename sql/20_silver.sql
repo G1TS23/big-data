@@ -9,7 +9,8 @@
 -- Silver est intégralement reconstruite depuis bronze à chaque exécution. Le
 -- rejeu est donc trivialement idempotent, et une correction de règle se
 -- propage à tout l'historique au run suivant. À plus grande échelle on
--- reconstruirait par partition ; à 15 000 séjours, la simplicité l'emporte.
+-- reconstruirait par partition ; à quelques milliers de séjours, la
+-- simplicité l'emporte.
 --
 -- Les valeurs écartées partent dans ops.rejects avec leur règle et le run_id
 -- qui les a produites : écarter sans tracer reviendrait à perdre la donnée.

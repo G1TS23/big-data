@@ -30,6 +30,18 @@ def source(settings):
 
 
 @pytest.fixture(scope="module")
+def qualite(settings, entrepot):
+    """Le bilan qualité du dernier run, indexé par règle."""
+    from eds import sql
+    client = sql.connect(settings)
+    run = client.query("SELECT argMax(run_id, mesure_at) FROM ops.data_quality").result_rows[0][0]
+    return {regle: (entree, concernees) for regle, entree, concernees
+            in client.query("SELECT regle, lignes_entree, lignes_concernees "
+                            "FROM ops.data_quality WHERE run_id = %(r)s",
+                            parameters={"r": run}).result_rows}
+
+
+@pytest.fixture(scope="module")
 def entrepot(settings):
     from eds import sql
     try:
@@ -56,31 +68,66 @@ class TestReconciliation:
 
 
 class TestVolumesAttendus:
-    """Le tableau publié dans docs/VALIDATION.md, figé.
+    """Les volumes du jeu de données, figés — le seul endroit du projet où ils
+    le sont.
 
-    Les données du CHU sont versionnées avec le projet et ne changent pas : ces
-    volumes sont donc des constantes, pas des ordres de grandeur. Un écart
-    signale une règle de rejet modifiée, et un document à corriger.
+    Les fichiers du CHU sont versionnés avec le projet : ces nombres sont donc
+    des constantes, pas des ordres de grandeur. Partout ailleurs, les tests
+    éprouvent des mécanismes et restent indifférents au jeu de données ; si le
+    CHU en livre un nouveau, c'est ce fichier seul qu'il faut reprendre, et les
+    écarts qu'il signale disent exactement ce qui a changé.
     """
 
     def test_source(self, source):
         assert {t: source[t]["source"] for t in CORRESPONDANCES} == {
-            "patients": 16_200, "sejours": 15_000, "diagnostics": 37_380,
-            "monitoring": 66_677, "services": 8, "cim10": 10,
+            "patients": 18_000, "sejours": 6_797, "diagnostics": 12_720,
+            "monitoring": 41_778, "services": 8, "cim10": 13,
         }
 
     def test_silver(self, entrepot):
         assert {t: entrepot[t]["silver"] for t in CORRESPONDANCES} == {
-            "patients": 6_000, "sejours": 14_864, "diagnostics": 37_040,
-            "monitoring": 64_799, "services": 8, "cim10": 10,
+            "patients": 6_000, "sejours": 6_729, "diagnostics": 12_593,
+            "monitoring": 40_400, "services": 8, "cim10": 13,
         }
 
     def test_rejets(self, entrepot):
         assert {t: entrepot[t]["rejets"] for t in CORRESPONDANCES} == {
-            "patients": 0, "sejours": 136, "diagnostics": 340,
-            "monitoring": 1_878, "services": 0, "cim10": 0,
+            "patients": 0, "sejours": 68, "diagnostics": 127,
+            "monitoring": 1_378, "services": 0, "cim10": 0,
         }
 
-    def test_les_doublons_patients_sont_des_instantanes_cumulatifs(self, source):
-        """Les trois dépôts se contiennent : 16 200 lignes, 6 000 patients."""
-        assert source["patients"]["doublons"] == 10_200
+    def test_les_doublons_patients_sont_des_instantanes(self, source):
+        """Trois instantanés complets de 6 000 patients : 18 000 lignes reçues,
+        12 000 répétitions, 6 000 patients réels."""
+        assert source["patients"]["doublons"] == 12_000
+
+
+class TestAnomaliesAttendues:
+    """Ce que le jeu de données contient d'anormal, et en quelle quantité.
+
+    Ces contrôles ne jugent pas le pipeline : ils décrivent la source. Un écart
+    signifie que le CHU a livré autre chose — ce qui est arrivé, et que ces
+    tests ont détecté immédiatement.
+    """
+
+    def test_signalements(self, qualite):
+        assert {r: c for r, (_, c) in qualite.items()
+                if r in SIGNALEMENTS} == SIGNALEMENTS
+
+    def test_le_numerateur_de_readmission_se_reconstitue(self, qualite):
+        fenetre, deces = qualite["retour_apres_deces_ecarte"]
+        _, mutation = qualite["retour_apres_mutation_ecarte"]
+        assert (fenetre, deces, mutation) == (780, 133, 255)
+        assert fenetre - deces - mutation == 392
+
+
+# Anomalies du jeu livré. Le jeu corrigé d'août 2026 a supprimé les
+# chevauchements et les modes de sortie manquants : les contrôles restent, à
+# zéro, pour qu'« aucune anomalie » se distingue de « plus personne ne mesure ».
+SIGNALEMENTS = {
+    "sejours_chevauchants": 0,
+    "mode_sortie_manquant": 0,
+    "admission_apres_deces": 133,
+    "sejour_en_cours": 683,
+    "releve_en_alerte": 3_270,
+}
