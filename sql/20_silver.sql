@@ -210,6 +210,17 @@ GROUP BY patient_key;
 -- ─── fait_sejour ────────────────────────────────────────────────────────────
 -- Une sortie vide n'est pas une anomalie : c'est un patient encore hospitalisé.
 -- Elle est donc absente des règles de rejet, et marquée est_en_cours = 1.
+--
+-- Une sortie ANTÉRIEURE à l'admission, en revanche, est écartée : elle rend
+-- inexploitables les trois grandeurs que le séjour produit — sa durée, sa
+-- contribution à l'occupation d'un jour, l'écart avec un retour éventuel. Le
+-- conserver imposerait un troisième état entre « clos » et « en cours ».
+--
+-- Le prix est connu et mesuré : 68 séjours, dont 51 sont l'unique séjour de
+-- leur patient — ces patients n'apparaissent donc dans aucun indicateur de
+-- pilotage. Leurs diagnostics, eux, survivent (voir fait_diagnostic, rattaché
+-- à bronze). Le chiffrage de l'alternative est dans docs/VALIDATION.md,
+-- « Les 51 patients sans séjour ».
 
 INSERT INTO ops.rejects (run_id, table_source, cle, regle, valeur)
 SELECT {b:String}, 'fait_sejour', s.stay_id,

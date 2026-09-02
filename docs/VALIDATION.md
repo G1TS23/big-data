@@ -260,7 +260,9 @@ de 1 à 19 jours, médiane 4.
 
 **Patients distincts : 5 949, et non 6 000.** `dim_patient` contient 6 000
 patients, mais 51 n'ont aucun séjour retenu. L'indicateur compte les patients
-**hospitalisés**, pas les patients connus.
+**hospitalisés**, pas les patients connus. Ces 51 patients ne sont pas perdus
+pour autant — voir
+[Les 51 patients sans séjour](#les-51-patients-sans-séjour).
 
 **Taux de réadmission** — numérateur : les séjours dont le précédent séjour du
 même patient s'est terminé entre 0 et 30 jours plus tôt, hors sorties par décès,
@@ -417,6 +419,60 @@ soins d'un hôpital.
 
 **3 — Les cinq tranches d'âge**, dont le découpage sert autant la lisibilité des
 graphiques que la pertinence épidémiologique.
+
+### Les 51 patients sans séjour
+
+*Limite connue, mesurée et assumée.*
+
+68 séjours sont écartés parce que leur date de sortie précède leur date
+d'admission. Pour **51 patients, c'était leur unique séjour** : ils n'apparaissent
+donc dans aucun indicateur de pilotage.
+
+**Ce qu'ils deviennent exactement.** Ils ne disparaissent pas de l'entrepôt :
+
+| couche | présents ? |
+|---|---|
+| `dim_patient` | oui — les 6 000 patients y sont |
+| `fait_diagnostic` | **oui** — les 51, avec 94 codes CIM-10 |
+| `fait_sejour` | non |
+| `fait_monitoring` | non |
+
+C'est la conséquence directe du rattachement des diagnostics à bronze : leur
+information **clinique** survit, leur séjour **administratif** non. Ils pèsent
+donc sur la prévalence, sur les distributions par âge et par sexe et sur les
+comorbidités ; ils sont absents de l'activité, de la DMS, de l'occupation, de la
+réadmission et de `coh_duree_pathologie`.
+
+**Pourquoi le séjour est écarté.** Une sortie antérieure à l'admission rend
+inexploitables les trois grandeurs que le séjour sert à produire : sa durée, sa
+contribution à l'occupation d'une journée, et l'écart avec un retour éventuel.
+Le conserver imposerait un troisième état, entre « clos » et « en cours », qui
+se propagerait dans le dénominateur de chaque indicateur.
+
+**L'alternative a été mesurée, pas supposée.** Garder ces séjours avec une date
+de sortie nulle et un témoin dédié donnerait :
+
+| | actuel | alternative |
+|---|---:|---:|
+| séjours | 6 729 | 6 797 |
+| patients | 5 949 | 6 000 |
+| relevés | 40 400 | 40 920 |
+| relevés en alerte | 3 270 | 3 314 |
+| DMS | 5,15 | 5,15 *(inchangée)* |
+| séjours clos | 6 046 | 6 046 *(inchangé)* |
+| réadmission | 12,89 % | 12,98 % |
+
+Aucun indicateur existant ne serait faussé — la DMS et les séjours clos ne
+bougent pas, ces séjours n'ayant pas de durée exploitable. Le coût n'est donc
+pas dans les chiffres, il est dans le modèle : un troisième état de séjour à
+définir, à documenter et à respecter dans chaque requête.
+
+**Le choix retenu**, pour ce rendu, est de conserver deux états et d'écarter le
+séjour, en assumant que 0,8 % des patients n'apparaissent pas au pilotage. Il
+est réversible, et le tableau ci-dessus dit exactement ce qu'il en coûterait de
+changer d'avis. La règle est visible dans `ops.data_quality`
+(`sortie_avant_admission`, 68 lignes sur 6 797) et les codes de ces séjours dans
+`diagnostic_sans_sejour_retenu` (127 sur 12 720).
 
 **Sur l'occupation.** La courbe s'arrête au **dernier dépôt** (2026-08-28), et non
 à la date du jour. Au-delà de cette borne les admissions ne sont plus connues :
