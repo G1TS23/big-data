@@ -303,10 +303,46 @@ Les séries catégorielles utilisent une palette validée, et les teintes qui
 passent sous 3:1 de contraste affichent leurs valeurs, ce qui tient lieu de
 second encodage.
 
-La démonstration du cloisonnement est produite par `eds acces` :
-41 contrôles, chacun avec son résultat attendu et obtenu.
+### La démonstration du cloisonnement
+
+`eds acces` la produit automatiquement : **41 contrôles**, chacun avec son
+résultat attendu et son résultat obtenu.
 
 ![Démonstration du cloisonnement](img/cloisonnement-eds-acces.png)
+
+Elle se vérifie aussi à l'écran, et à **deux étages indépendants**. Ce qui suit
+montre le compte de recherche, `recherche@chu.local` / `bi_recherche`.
+
+**Étage restitution — Metabase.** Il ne voit que sa collection ; le tableau de
+bord Pilotage lui est refusé.
+
+| ce qu'il voit | ce qui lui est refusé |
+|---|---|
+| ![Accueil recherche](img/acces-metabase-recherche-accueil.png) | ![Pilotage refusé](img/acces-metabase-pilotage-refuse.png) |
+
+**Étage moteur — ClickHouse.** C'est le contrôle qui compte vraiment : même en
+écrivant sa propre requête, le compte de recherche ne peut pas contourner le
+seuil de diffusion. La vue de cohortes lui est ouverte, la table silver qui
+l'alimente lui est fermée.
+
+| `gold_recherche.coh_prevalence` — autorisé | `silver.dim_patient` — refusé |
+|---|---|
+| ![Cohorte autorisée](img/acces-clickhouse-cohorte-autorisee.png) | ![Silver refusé](img/acces-clickhouse-silver-refuse.png) |
+
+La capture de gauche montre le **seuil de diffusion à l'œuvre** : 11 pathologies
+sont renvoyées alors que le référentiel en compte 13. `G12` passe avec ses
+8 patients ; `E84` (4 patients) et `Q90` (3) sont supprimées. Personne n'a eu à
+le demander — c'est la vue qui l'impose.
+
+Celle de droite est la garantie que ce seuil ne se contourne pas :
+
+```
+Code: 497. bi_recherche: Not enough privileges. […] ON silver.dim_patient.
+(ACCESS_DENIED)
+```
+
+Le refus vient du **moteur**, pas de l'application. Une clause `WHERE` oubliée
+dans une vue ne pourrait pas ouvrir cette porte.
 
 ## 7. Limites et recommandations
 
