@@ -15,10 +15,11 @@ deux fois.
 - [4. Anomalies conservées et signalées](#4-anomalies-conservées-et-signalées)
 - [5. Le seuil de diffusion, éprouvé](#5-le-seuil-de-diffusion-éprouvé)
 - [6. Recalcul des sept indicateurs de synthèse](#6-recalcul-des-sept-indicateurs-de-synthèse)
-- [7. Recalcul détaillé sur trois séjours](#7-recalcul-détaillé-sur-trois-séjours)
-- [8. Ce que le recalcul a corrigé](#8-ce-que-le-recalcul-a-corrigé)
-- [9. Test de rejeu](#9-test-de-rejeu)
-- [10. Ce que cette validation ne couvre pas](#10-ce-que-cette-validation-ne-couvre-pas)
+- [7. Confrontation au corrigé du commanditaire](#7-confrontation-au-corrigé-du-commanditaire)
+- [8. Recalcul détaillé sur trois séjours](#8-recalcul-détaillé-sur-trois-séjours)
+- [9. Ce que le recalcul a corrigé](#9-ce-que-le-recalcul-a-corrigé)
+- [10. Test de rejeu](#10-test-de-rejeu)
+- [11. Ce que cette validation ne couvre pas](#11-ce-que-cette-validation-ne-couvre-pas)
 
 ---
 
@@ -74,7 +75,7 @@ python docs/outils/reconcilier.py
 | patients | 18 000 | 18 000 | 6 000 | 0 | 12 000 | ✓ |
 | sejours | 6 797 | 6 797 | 6 729 | 68 | 0 | ✓ |
 | diagnostics | 12 720 | 12 720 | 12 720 | 0 | 0 | ✓ |
-| monitoring | 41 778 | 41 778 | 40 400 | 1 378 | 0 | ✓ |
+| monitoring | 41 778 | 41 778 | 40 920 | 858 | 0 | ✓ |
 | services | 8 | 8 | 8 | 0 | 0 | ✓ |
 | cim10 | 13 | 13 | 13 | 0 | 0 | ✓ |
 
@@ -134,20 +135,18 @@ Concrètement, sur les six vues de recherche, une seule joint `fait_sejour` :
 codes, ce qui est correct : sans date de sortie exploitable, il n'y a pas de
 durée à moyenner. Les cinq autres vues les intègrent.
 
-### Monitoring : 1 378 rejets, deux motifs à ne pas confondre
+### Monitoring : 858 rejets, un seul motif
 
-| motif | relevés | nature |
-|---|---:|---|
-| `fc_hors_bornes` | 858 | fréquence cardiaque hors de 20–250 bpm : la **valeur est fausse** (capteur, saisie) |
-| `sejour_inconnu` | 520 | relevé rattaché à l'un des 68 séjours rejetés |
+Seuls les relevés **hors bornes physiologiques** sont écartés : 858 fréquences
+cardiaques hors de 20–250 bpm, où la valeur est fausse (capteur, saisie). Aucun
+relevé n'est écarté pour une SpO2 ou une température hors bornes.
 
-Les 520 relevés `sejour_inconnu` se répartissent sur 11 séjours seulement. En y
-ajoutant les 8 relevés de séjours rejetés qui sortent d'abord sur les bornes
-physiologiques, **528 relevés bronze appartiennent aux 68 séjours rejetés — et il
-en survit 0 en silver**, ce qui vérifie l'intégrité référentielle par un second
-chemin.
-
-Aucun relevé n'est écarté pour une SpO2 ou une température hors bornes.
+Comme les diagnostics, les relevés se rattachent à `silver.sejour_recevable` et
+non à `fait_sejour` : **une constante mesurée au chevet du patient reste vraie
+quand la date de sortie du séjour est fautive.** 520 relevés appartiennent aux
+68 séjours écartés ; les joindre au fait épuré les aurait supprimés. Le contrôle
+`releve_sans_sejour_retenu` les compte, comme son équivalent pour les
+diagnostics.
 
 > La distinction est structurante. Une valeur **hors bornes physiologiques** est
 > fausse : elle est écartée. Une valeur **hors seuils cliniques** est vraie mais
@@ -168,9 +167,10 @@ voir.
 |---|---:|---:|---:|
 | `sejour_en_cours` | 683 | 6 729 | 10,2 % |
 | `admission_apres_deces` | 133 | 6 729 | 2,0 % |
-| `releve_en_alerte` | 3 270 | 40 400 | 8,1 % |
+| `releve_en_alerte` | 3 314 | 40 920 | 8,1 % |
 | `sejours_chevauchants` | **0** | 6 729 | 0 % |
 | `diagnostic_sans_sejour_retenu` | 127 | 12 720 | 1,0 % |
+| `releve_sans_sejour_retenu` | 520 | 40 920 | 1,3 % |
 | `mode_sortie_manquant` | **0** | 6 046 clos | 0 % |
 
 Les deux derniers valent zéro sur ce jeu, et **les contrôles restent en place**.
@@ -248,8 +248,8 @@ fichiers bruts, en réimplémentant la définition métier à la main.
 | séjours en cours | 683 | 683 | ✓ |
 | DMS (jours) | 5,15 | 31 140 / 6 046 = 5,1505 | ✓ |
 | taux de réadmission 30 j | 0,1289 | 392 / 3 042 = 0,1289 | ✓ |
-| relevés en alerte | 3 270 | 3 270 | ✓ |
-| part de relevés en alerte | 0,0809 | 3 270 / 40 400 = 0,0809 | ✓ |
+| relevés en alerte | 3 314 | 3 314 | ✓ |
+| part de relevés en alerte | 0,0810 | 3 314 / 40 920 = 0,0810 | ✓ |
 
 Les définitions retenues, telles que le recalcul les a reproduites :
 
@@ -269,14 +269,71 @@ même patient s'est terminé entre 0 et 30 jours plus tôt, hors sorties par dé
 mutation ou transfert. Dénominateur : les 3 042 séjours clos dont la sortie n'est
 pas l'une de ces trois — soit exactement les sorties à domicile.
 
-**Alertes** — bradycardie < 60, tachycardie > 100, hypoxémie SpO2 < 92, fièvre
-> 38,0 °C, appliquées aux 40 400 relevés retenus. Les seuils sont dans
+**Alertes** — bradycardie < 50, tachycardie > 100, hypoxémie SpO2 < 92, fièvre
+> 38,5 °C, appliquées aux 40 920 relevés retenus. Les seuils sont dans
 `config/regles.yml` et consignés dans `ops.parametres` à chaque exécution : on
 sait toujours avec quels seuils un chiffre a été produit.
 
 ---
 
-## 7. Recalcul détaillé sur trois séjours
+## 7. Confrontation au corrigé du commanditaire
+
+Le commanditaire a fourni une feuille de réponses attendues, calculée sur le même
+jeu de données. C'est une troisième mesure, indépendante de nos deux premières.
+
+| point de contrôle | résultat |
+|---|---|
+| `dim_patient` : 18 000 → 6 000 | ✓ |
+| `fait_sejour` : 6 797 → 6 729, 68 écartés | ✓ |
+| `fait_monitoring` : 41 778 → 40 920, 858 écartés | ✓ |
+| **KPI 1** — DMS par 8 services | ✓ effectifs exacts, DMS à ±0,02 (tolérance ±0,1) |
+| **KPI 2** — réadmission à 30 jours | **écart de définition, assumé** — voir plus bas |
+| **KPI 3** — activité urgences par jour | ✓ 28 jours × 3 colonnes |
+| **KPI 4** — surveillance des constantes par jour | ✓ 30 jours × 2 colonnes |
+| **KPI 5** — prévalence par pathologie | ✓ 11 codes diffusés, 2 masqués sous k = 5 |
+| **KPI 6** — cohortes âge × sexe | ✓ **102 lignes sur 102** |
+
+Trois règles ont été alignées sur le corrigé, qui fait foi :
+
+**Les seuils d'alerte** passent à FC < 50 (au lieu de 60) et T° > 38,5 (au lieu
+de 38,0) ; SpO2 < 92 était déjà identique. Chacun tombe dans une plage vide des
+données — la FC saute de 49 à 60 puis de 95 à 101, la SpO2 de 91 à 96, la
+température de 37,6 à 38,6 — donc le décompte ne dépendait pas de leur réglage
+fin, et l'écart portait sur la définition, non sur les chiffres.
+
+**Les relevés se rattachent à bronze**, comme les diagnostics. Nous en rejetions
+520 parce que leur séjour avait été écarté : c'était une incohérence de notre
+part, puisque nous venions d'adopter le principe inverse pour les diagnostics.
+Une constante mesurée au chevet du patient reste vraie quand la date de sortie
+du séjour est fautive.
+
+**`kpi_urgences_jour` compte le service URGENCES**, et non les admissions en mode
+« urgence » — un patient admis en urgence en cardiologie n'est pas passé aux
+urgences. Les deux mesures coexistent désormais, nommées pour ce qu'elles sont,
+et les colonnes `encore_presents` et `duree_moy_heures` ont été ajoutées.
+
+### L'écart maintenu : le taux de réadmission
+
+| | numérateur | dénominateur | taux |
+|---|---:|---:|---:|
+| corrigé | 780 | 6 729 | 11,59 % |
+| ce projet | 392 | 3 042 | 12,89 % |
+
+Notre chiffre brut de **780 retours dans la fenêtre de 30 jours est exactement
+celui du corrigé** : la mesure concorde, la définition diffère. Nous en
+retranchons 133 retours après un décès et 255 après mutation ou transfert, et
+nous rapportons le reste aux 3 042 séjours dont le patient pouvait effectivement
+revenir — c'est-à-dire les sorties à domicile.
+
+Adopter la définition du corrigé publierait **133 patients réadmis après leur
+propre décès**. L'écart est donc conservé, délibérément, et documenté en
+[section 4](#4-anomalies-conservées-et-signalées) : `ops.data_quality` porte les
+deux exclusions, si bien que le chiffre du corrigé se reconstitue depuis le
+nôtre sans lire une ligne de SQL — 392 + 133 + 255 = 780.
+
+---
+
+## 8. Recalcul détaillé sur trois séjours
 
 Trois séjours contrastés, suivis à la main de bout en bout. Toutes les valeurs
 d'entrée se lisent directement dans `source-filestorage/`.
@@ -341,7 +398,7 @@ d'entrée se lisent directement dans `source-filestorage/`.
 
 ---
 
-## 8. Ce que le recalcul a corrigé
+## 9. Ce que le recalcul a corrigé
 
 Le premier recalcul manuel **ne tombait pas juste** : il trouvait 15 séjours
 rejetés au lieu de 68.
@@ -360,7 +417,7 @@ incohérent, que ce soit de deux heures ou de deux jours.
 
 ---
 
-## 9. Test de rejeu
+## 10. Test de rejeu
 
 Le pipeline doit pouvoir être relancé sans que les chiffres bougent. Deux
 `eds run` consécutifs, avec relevé des indicateurs avant, entre et après :
@@ -371,8 +428,8 @@ kpi après 1: 6729  5949  683  5.15  0.1289  3270  0.0809
 kpi après 2: 6729  5949  683  5.15  0.1289  3270  0.0809
 ```
 
-Identiques. Le nombre de rejets l'est aussi : **1 573 par exécution**
-(68 + 127 + 1 378), stable d'un run à l'autre.
+Identiques. Le nombre de rejets l'est aussi : **926 par exécution**
+(68 + 858), stable d'un run à l'autre.
 
 Les compteurs du lake montrent le mécanisme d'idempotence à l'œuvre : les 89
 fichiers déjà copiés sont reconnus sur leur date et **aucun octet n'en est
@@ -390,14 +447,15 @@ déboguer.
 
 ---
 
-## 10. Ce que cette validation ne couvre pas
+## 11. Ce que cette validation ne couvre pas
 
 Elle établit que **le pipeline calcule fidèlement ce qu'on lui a demandé de
 calculer**. Elle n'établit pas que les définitions métier retenues sont les
 bonnes : elles ont été choisies par des informaticiens, pas par des cliniciens.
 Trois méritent une relecture médicale avant tout usage réel.
 
-**1 — Les seuils d'alerte** (FC < 60 ou > 100, SpO2 < 92, T > 38,0 °C). Ils
+**1 — Les seuils d'alerte** (FC < 50 ou > 100, SpO2 < 92, T > 38,5 °C), fournis
+par le commanditaire. Ils
 tombent dans des plages entièrement vides des données observées, donc le décompte
 des alertes ne dépend pas de leur réglage fin. Leur pertinence clinique reste à
 confirmer.
@@ -456,16 +514,21 @@ de sortie nulle et un témoin dédié donnerait :
 |---|---:|---:|
 | séjours | 6 729 | 6 797 |
 | patients | 5 949 | 6 000 |
-| relevés | 40 400 | 40 920 |
-| relevés en alerte | 3 270 | 3 314 |
-| DMS | 5,15 | 5,15 *(inchangée)* |
 | séjours clos | 6 046 | 6 046 *(inchangé)* |
+| DMS | 5,15 | 5,15 *(inchangée)* |
+| relevés | 40 920 | 40 920 *(inchangé)* |
+| diagnostics | 12 720 | 12 720 *(inchangé)* |
 | réadmission | 12,89 % | 12,98 % |
 
-Aucun indicateur existant ne serait faussé — la DMS et les séjours clos ne
-bougent pas, ces séjours n'ayant pas de durée exploitable. Le coût n'est donc
-pas dans les chiffres, il est dans le modèle : un troisième état de séjour à
-définir, à documenter et à respecter dans chaque requête.
+L'écart s'est **réduit** depuis que les diagnostics et les relevés se rattachent
+à bronze : leurs volumes ne dépendent plus du sort du séjour. Il ne reste que
+`fait_sejour` — 68 lignes — et les 51 patients qui n'y ont que celle-là. La DMS
+et les séjours clos ne bougent pas, ces séjours n'ayant pas de durée
+exploitable ; la réadmission gagne 3 retours.
+
+Le coût n'est donc pas dans les chiffres, il est dans le modèle : un troisième
+état de séjour, entre « clos » et « en cours », à définir, à documenter et à
+respecter dans chaque dénominateur.
 
 **Le choix retenu**, pour ce rendu, est de conserver deux états et d'écarter le
 séjour, en assumant que 0,8 % des patients n'apparaissent pas au pilotage. Il

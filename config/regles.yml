@@ -18,16 +18,21 @@ bornes:
 
 # ── Seuils cliniques d'alerte ───────────────────────────────────────────────
 # En deçà ou au-delà, la valeur est VRAIE mais le patient va mal : la ligne est
-# conservée et signalée. Le sujet ne les définit pas.
+# conservée et signalée.
 #
-# Ces seuils tombent dans des plages entièrement vides des données observées
-# (FC 50–59 et 96–100, SpO2 92–95, température 37,7–38,5), donc le décompte des
-# alertes ne dépend pas de leur réglage fin. Valeurs cliniques usuelles :
-# bradycardie, tachycardie, hypoxémie, fièvre.
+# Valeurs FOURNIES par le commanditaire dans sa feuille de réponses attendues :
+# SpO2 < 92 · FC < 50 ou > 100 · T° > 38,5. Elles font foi, et le décompte des
+# alertes s'y conforme au relevé près sur les 30 jours observés.
+#
+# Chaque seuil tombe par ailleurs dans une plage VIDE des données observées —
+# la FC saute de 49 à 60 puis de 95 à 101, la SpO2 de 91 à 96, la température
+# de 37,6 à 38,6 : le décompte ne dépend donc pas de leur réglage fin, et un
+# clinicien peut les réviser sans rien casser.
+# Motifs : bradycardie, tachycardie, hypoxémie, fièvre.
 alertes:
-  heart_rate: {bas: 60, haut: 100}
+  heart_rate: {bas: 50, haut: 100}
   spo2:       {bas: 92}
-  temp_c:     {haut: 38.0}
+  temp_c:     {haut: 38.5}
 
 # ── Autres règles ───────────────────────────────────────────────────────────
 annee_naissance_min: 1900          # borne basse de plausibilité

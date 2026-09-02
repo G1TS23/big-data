@@ -52,12 +52,18 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_activite_jour
 ) ENGINE = MergeTree ORDER BY (jour, service_code);
 
 -- ─── Passages aux urgences par jour ────────────────────────────────────────
+-- « Passages aux urgences » compte les séjours du SERVICE Urgences, et non les
+-- admissions en mode urgence : un patient admis en urgence en cardiologie n'est
+-- pas passé aux urgences. Les deux mesures sont conservées, nommées pour ce
+-- qu'elles sont.
 CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_urgences_jour
 (
-    jour            Date,
-    passages        UInt64,
-    dont_service_urgences UInt64,
-    _batch_id       LowCardinality(String)
+    jour                    Date,
+    passages                UInt64,   -- séjours du service URGENCES admis ce jour
+    encore_presents         UInt64,   -- dont le patient est toujours hospitalisé
+    duree_moy_heures        Float64,  -- durée moyenne des passages clos, en heures
+    admissions_mode_urgence UInt64,   -- admissions en mode « urgence », tous services
+    _batch_id               LowCardinality(String)
 ) ENGINE = MergeTree ORDER BY jour;
 
 -- ─── Occupation : patients présents chaque jour ────────────────────────────
@@ -161,8 +167,15 @@ GROUP BY jour, s.service_code, d.service_label;
 
 INSERT INTO gold_pilotage.kpi_urgences_jour
 SELECT toDate(admission_ts) AS jour,
-       countIf(admission_mode = 'urgence') AS passages,
-       countIf(service_code = 'URGENCES')  AS dont_service_urgences,
+       countIf(service_code = 'URGENCES')                        AS passages,
+       countIf(service_code = 'URGENCES' AND est_en_cours = 1)   AS encore_presents,
+       -- La durée en HEURES, non en jours : un passage aux urgences se compte
+       -- en heures, et dateDiff('day') les écraserait toutes sur 0 ou 1.
+       -- ifNotFinite : un jour où aucun passage ne serait clos donnerait NaN.
+       ifNotFinite(round(avgIf(dateDiff('hour', admission_ts, discharge_ts),
+                               service_code = 'URGENCES' AND est_en_cours = 0), 1), 0)
+                                                                 AS duree_moy_heures,
+       countIf(admission_mode = 'urgence')                       AS admissions_mode_urgence,
        {b:String}
 FROM silver.fait_sejour
 GROUP BY jour;

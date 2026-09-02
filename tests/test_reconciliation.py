@@ -87,13 +87,13 @@ class TestVolumesAttendus:
     def test_silver(self, entrepot):
         assert {t: entrepot[t]["silver"] for t in CORRESPONDANCES} == {
             "patients": 6_000, "sejours": 6_729, "diagnostics": 12_720,
-            "monitoring": 40_400, "services": 8, "cim10": 13,
+            "monitoring": 40_920, "services": 8, "cim10": 13,
         }
 
     def test_rejets(self, entrepot):
         assert {t: entrepot[t]["rejets"] for t in CORRESPONDANCES} == {
             "patients": 0, "sejours": 68, "diagnostics": 0,
-            "monitoring": 1_378, "services": 0, "cim10": 0,
+            "monitoring": 858, "services": 0, "cim10": 0,
         }
 
     def test_les_doublons_patients_sont_des_instantanes(self, source):
@@ -129,5 +129,5 @@ SIGNALEMENTS = {
     "mode_sortie_manquant": 0,
     "admission_apres_deces": 133,
     "sejour_en_cours": 683,
-    "releve_en_alerte": 3_270,
+    "releve_en_alerte": 3_314,
 }

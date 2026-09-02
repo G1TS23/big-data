@@ -214,9 +214,22 @@ class TestIntegriteReferentielle:
                       r=dernier_run) == orphelins
         assert orphelins > 0, "sans orphelin, le contrôle passerait à vide"
 
-    def test_tout_releve_pointe_un_sejour_connu(self, ch):
+    def test_tout_releve_pointe_un_sejour_de_bronze(self, ch):
+        """Comme les diagnostics : une constante mesurée au chevet du patient
+        reste vraie quand la date de sortie du séjour est fautive."""
         assert scalar(ch, "SELECT count() FROM silver.fait_monitoring "
-                          "WHERE stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour)") == 0
+                          "WHERE stay_id NOT IN "
+                          "(SELECT stay_id FROM silver.sejour_recevable)") == 0
+
+    def test_les_releves_orphelins_sont_comptes(self, ch, dernier_run):
+        orphelins = scalar(ch, "SELECT countIf(stay_id NOT IN "
+                               "(SELECT stay_id FROM silver.fait_sejour)) "
+                               "FROM silver.fait_monitoring")
+        assert scalar(ch, "SELECT lignes_concernees FROM ops.data_quality "
+                          "WHERE run_id = {r:String} "
+                          "AND regle = 'releve_sans_sejour_retenu'",
+                      r=dernier_run) == orphelins
+        assert orphelins > 0, "sans orphelin, le contrôle passerait à vide"
 
 
 class TestReadmission:

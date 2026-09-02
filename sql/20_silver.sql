@@ -133,6 +133,7 @@ ORDER BY (stay_id, ts);
 CREATE OR REPLACE VIEW silver.sejour_recevable AS
 SELECT v.stay_id                                    AS stay_id,
        v.patient_key                                AS patient_key,
+       v.service_code                               AS service_code,
        v.admission_ts                               AS admission_ts,
        -- Âge ATTEINT dans l'année de l'admission : la date de naissance est
        -- généralisée à l'année dès l'entrée du lake.
@@ -141,13 +142,15 @@ FROM (
     -- « b. » en WHERE : sans la qualification, admission_ts se résoudrait sur
     -- l'alias de l'argMax, et le moteur refuse un agrégat dans un WHERE.
     SELECT stay_id,
-           argMax(patient_key, _ingestion_date)  AS patient_key,
-           argMax(admission_ts, _ingestion_date) AS admission_ts
+           argMax(patient_key, _ingestion_date)   AS patient_key,
+           argMax(service_code, _ingestion_date)  AS service_code,
+           argMax(admission_ts, _ingestion_date)  AS admission_ts
     FROM bronze.sejours AS b
     WHERE b.admission_ts IS NOT NULL
     GROUP BY stay_id
 ) AS v
-INNER JOIN silver.dim_patient AS p ON p.patient_key = v.patient_key;
+INNER JOIN silver.dim_patient AS p ON p.patient_key = v.patient_key
+INNER JOIN silver.dim_service AS d ON d.service_code = v.service_code;
 
 -- ─── Reconstruction ─────────────────────────────────────────────────────────
 --
@@ -368,6 +371,10 @@ INNER JOIN silver.sejour_recevable AS b ON b.stay_id = a.stay_id
 WHERE a.code IN (SELECT code_cim10 FROM silver.dim_cim10);
 
 -- ─── fait_monitoring ────────────────────────────────────────────────────────
+-- Rattaché à sejour_recevable, comme les diagnostics : une date de sortie
+-- fautive n'invalide pas une constante mesurée au chevet du patient. Sans quoi
+-- 520 relevés disparaîtraient à cause d'une erreur qui ne les concerne pas.
+--
 -- Deux contrôles à ne pas confondre :
 --   hors BORNES physiologiques  → la valeur est fausse, la ligne est écartée
 --   hors SEUILS cliniques       → le patient va mal, la ligne est conservée
@@ -386,7 +393,7 @@ WHERE heart_rate IS NULL OR spo2 IS NULL OR temp_c IS NULL
    OR heart_rate NOT BETWEEN {fc_min:Int32} AND {fc_max:Int32}
    OR spo2       NOT BETWEEN {spo2_min:Int32} AND {spo2_max:Int32}
    OR temp_c     NOT BETWEEN {temp_min:Float32} AND {temp_max:Float32}
-   OR stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour);
+   OR stay_id NOT IN (SELECT stay_id FROM silver.sejour_recevable);
 
 INSERT INTO silver.fait_monitoring
     (stay_id, service_code, ts, heart_rate, spo2, temp_c, est_alerte, motif_alerte, _batch_id)
@@ -401,7 +408,7 @@ SELECT m.stay_id, s.service_code, m.ts, m.heart_rate, m.spo2, m.temp_c,
                                                   '') AS motif_alerte,
        {b:String}
 FROM bronze.monitoring AS m
-INNER JOIN silver.fait_sejour AS s ON s.stay_id = m.stay_id
+INNER JOIN silver.sejour_recevable AS s ON s.stay_id = m.stay_id
 WHERE m.heart_rate IS NOT NULL AND m.spo2 IS NOT NULL AND m.temp_c IS NOT NULL
   AND m.heart_rate BETWEEN {fc_min:Int32} AND {fc_max:Int32}
   AND m.spo2       BETWEEN {spo2_min:Int32} AND {spo2_max:Int32}
@@ -484,3 +491,11 @@ INSERT INTO ops.data_quality
 SELECT {b:String}, 'fait_diagnostic', 'diagnostic_sans_sejour_retenu', 'SIGNALEMENT',
        count(), countIf(stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour))
 FROM silver.fait_diagnostic;
+
+-- Même contrepartie pour les relevés : une constante mesurée au chevet du
+-- patient reste vraie quand la date de sortie du séjour est fautive.
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'fait_monitoring', 'releve_sans_sejour_retenu', 'SIGNALEMENT',
+       count(), countIf(stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour))
+FROM silver.fait_monitoring;
