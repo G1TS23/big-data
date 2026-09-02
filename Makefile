@@ -24,12 +24,14 @@ pipeline:
 tests:
 	./.venv/bin/python -m pytest tests/ -q
 
-# Les empreintes sont calculées dans l'image CIBLE : une roue Linux n'a pas la
-# même empreinte que son équivalent macOS, et pip les refuserait.
+# La résolution se fait dans l'image CIBLE : les versions retenues dépendent de
+# la version de Python et du système, pas de la machine qui lance make.
+# Sans --no-deps : ce sont les dépendances transitives qu'il faut figer, pas
+# seulement les six lignes de requirements.txt.
 verrou:
 	docker run --rm -v "$(PWD):/w" -w /w python:3.12-slim sh -c '\
 	  pip install -q --upgrade pip >/dev/null 2>&1; \
-	  pip download --only-binary :all: --no-deps -q -d /tmp/roues -r requirements.txt && \
+	  pip download --only-binary :all: -q -d /tmp/roues -r requirements.txt && \
 	  python docs/outils/verrouiller.py /tmp/roues requirements.lock'
 
 capture:

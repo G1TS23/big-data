@@ -1,28 +1,35 @@
 # Dépendances d'exécution, versions RÉSOLUES et empreintes vérifiées.
 #
-# Les empreintes portent sur les roues Linux de l'image cible : pip refuse
-# d'installer un paquet dont le contenu ne correspond pas, ce qui ferme la
-# porte à la substitution d'un paquet en amont.
+# pip refuse d'installer un paquet dont le contenu ne correspond à aucune
+# empreinte listée : la substitution d'un paquet en amont est fermée.
+#
+# Plusieurs empreintes par paquet, c'est normal : un paquet compilé publie une
+# roue par architecture, et le verrou couvre x86_64 comme aarch64 pour qu'une
+# même image se construise sur un PC comme sur un Mac Apple Silicon.
 #
 # Régénérer après toute modification de requirements.txt :  make verrou
 apscheduler==3.11.3 \
     --hash=sha256:bbeb2ec02d23d3c06a6c07ed7f0f3939ada6680eb121fae809a69bb42c537a30
 backports-zstd==1.7.0 \
-    --hash=sha256:1c55e55e1e9dee312bc5e186386e6aa5207482a6d2242bd7c14709ded254f87f
+    --hash=sha256:1c55e55e1e9dee312bc5e186386e6aa5207482a6d2242bd7c14709ded254f87f \
+    --hash=sha256:470895d0bcddc850766e593d1b26764fb138c2feed149f515a2627ef9587d54c
 certifi==2026.7.22 \
     --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775
 clickhouse-connect==1.7.2 \
+    --hash=sha256:26728faddb7f881f064757d449f52b1d8f788b77d149d0dac6e036e6f1a3fcdb \
     --hash=sha256:be598f18e8d2d1565f7c870e053cef3f5b6d0a45f16bf3f5456bac622804bb65
 iniconfig==2.3.0 \
     --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
 lz4==4.4.5 \
+    --hash=sha256:24092635f47538b392c4eaeff14c7270d2c8e806bf4be2a6446a378591c5e69e \
     --hash=sha256:2c3ea562c3af274264444819ae9b14dbbf1ab070aff214a05e97db6896c7597e
 packaging==26.3 \
     --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
 pluggy==1.6.0 \
     --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
 pyarrow==25.0.1 \
-    --hash=sha256:4340f0ba6c1d2e13f21658de1d7c662ca2545018568d0030a1e9afca159d87e3
+    --hash=sha256:4340f0ba6c1d2e13f21658de1d7c662ca2545018568d0030a1e9afca159d87e3 \
+    --hash=sha256:5389cdf79447ed1515c9e31620e6e1e2302249564d603f2ad727d4f6d313e4c3
 pygments==2.21.0 \
     --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9
 pytest==9.1.1 \
@@ -30,7 +37,8 @@ pytest==9.1.1 \
 python-dotenv==1.2.3 \
     --hash=sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9
 pyyaml==6.0.3 \
-    --hash=sha256:9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28
+    --hash=sha256:9149cad251584d5fb4981be1ecde53a1ca46c891a79788c0df828d2f166bda28 \
+    --hash=sha256:ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc
 tzlocal==5.4.4 \
     --hash=sha256:aae09f0126a8a86fa736be266eb4a471380d26a0de3bc14844e7821fee3e2a15
 urllib3==2.7.0 \
