@@ -268,3 +268,47 @@ class TestAnomaliesSignalees:
 
     def test_admissions_apres_deces_signalees(self, ch):
         assert scalar(ch, "SELECT countIf(est_apres_deces = 1) FROM silver.fait_sejour") > 0
+
+    def test_mode_de_sortie_manquant_signale(self, ch, dernier_run):
+        """1 975 séjours clos sans mode de sortie : trou des données source, pas
+        du traitement. Le contrôle les rend visibles, aucun n'est rejeté."""
+        assert scalar(ch, "SELECT countIf(est_en_cours = 0 AND discharge_mode = '') "
+                          "FROM silver.fait_sejour") == 1975
+        assert scalar(ch, "SELECT lignes_concernees FROM ops.data_quality "
+                          "WHERE run_id = {r:String} AND regle = 'mode_sortie_manquant'",
+                      r=dernier_run) == 1975
+
+    def test_aucun_sejour_en_cours_ne_porte_de_mode_de_sortie(self, ch):
+        """L'incohérence symétrique : sortir sans être sorti."""
+        assert scalar(ch, "SELECT countIf(est_en_cours = 1 AND discharge_mode != '') "
+                          "FROM silver.fait_sejour") == 0
+
+
+class TestExclusionsDuTauxDeReadmission:
+    """Le numérateur publié doit se reconstituer depuis ops.data_quality.
+
+    Un retour après décès est physiquement impossible ; un retour après mutation
+    ou transfert n'est pas un retour, le patient n'était jamais rentré chez lui.
+    Ces deux exclusions ne déplacent presque pas le taux — elles changent ce
+    qu'il affirme. Voir docs/VALIDATION.md.
+    """
+
+    def controle(self, ch, run, regle):
+        return ch.query("SELECT lignes_entree, lignes_concernees FROM ops.data_quality "
+                        "WHERE run_id = %(r)s AND regle = %(g)s",
+                        parameters={"r": run, "g": regle}).result_rows[0]
+
+    def test_le_numerateur_se_reconstitue(self, ch, dernier_run):
+        fenetre, deces = self.controle(ch, dernier_run, "retour_apres_deces_ecarte")
+        _, mutation = self.controle(ch, dernier_run, "retour_apres_mutation_ecarte")
+        publie = scalar(ch, "SELECT countIf(est_readmission_30j = 1) FROM silver.fait_sejour")
+        assert fenetre - deces - mutation == publie
+
+    def test_aucune_readmission_apres_un_deces(self, ch):
+        assert scalar(ch, "SELECT countIf(est_readmission_30j = 1 "
+                          "AND mode_sortie_precedent = 'deces') FROM silver.fait_sejour") == 0
+
+    def test_les_retours_post_mortem_existent_bel_et_bien(self, ch, dernier_run):
+        """Sans cette assertion, le test précédent passerait sur zéro ligne."""
+        _, deces = self.controle(ch, dernier_run, "retour_apres_deces_ecarte")
+        assert deces == 109

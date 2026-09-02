@@ -11,11 +11,12 @@ deux fois.
 
 - [1. Réconciliation source ↔ entrepôt](#1-réconciliation-source--entrepôt)
 - [2. Ce que chaque écart recouvre](#2-ce-que-chaque-écart-recouvre)
-- [3. Recalcul des sept indicateurs de synthèse](#3-recalcul-des-sept-indicateurs-de-synthèse)
-- [4. Recalcul détaillé sur trois séjours](#4-recalcul-détaillé-sur-trois-séjours)
-- [5. Ce que le recalcul a corrigé](#5-ce-que-le-recalcul-a-corrigé)
-- [6. Test de rejeu](#6-test-de-rejeu)
-- [7. Ce que cette validation ne couvre pas](#7-ce-que-cette-validation-ne-couvre-pas)
+- [3. Anomalies conservées, et ce qu'elles coûtent](#3-anomalies-conservées-et-ce-quelles-coûtent)
+- [4. Recalcul des sept indicateurs de synthèse](#4-recalcul-des-sept-indicateurs-de-synthèse)
+- [5. Recalcul détaillé sur trois séjours](#5-recalcul-détaillé-sur-trois-séjours)
+- [6. Ce que le recalcul a corrigé](#6-ce-que-le-recalcul-a-corrigé)
+- [7. Test de rejeu](#7-test-de-rejeu)
+- [8. Ce que cette validation ne couvre pas](#8-ce-que-cette-validation-ne-couvre-pas)
 
 ---
 
@@ -112,7 +113,98 @@ Aucun relevé n'est écarté pour une SpO2 ou une température hors bornes.
 
 ---
 
-## 3. Recalcul des sept indicateurs de synthèse
+## 3. Anomalies conservées, et ce qu'elles coûtent
+
+Rejeter une ligne, c'est décider qu'elle est fausse. Trois anomalies de ces
+données ne le sont pas : elles sont vraies, gênantes, et les écarter
+fabriquerait une erreur au lieu d'en corriger une. Elles sont donc **conservées
+et signalées** dans `ops.data_quality`, où `eds status` et le tableau de bord
+Exploitation les donnent à voir.
+
+| anomalie | volume | base | part |
+|---|---:|---:|---:|
+| séjours qui se chevauchent | 7 978 | 14 864 | 53,7 % |
+| admissions postérieures à un décès | 1 231 | 14 864 | 8,3 % |
+| séjours clos sans mode de sortie | 1 975 | 13 674 clos | 14,4 % |
+
+### Le mode de sortie manquant
+
+1 992 séjours de la source portent une date de sortie mais **aucun mode de
+sortie** ; 17 tombent parmi les 136 rejets de cohérence temporelle, il en reste
+1 975. Le patient est sorti, on ne sait pas comment.
+
+Ce ne sont **pas** les séjours en cours. Les deux populations sont disjointes :
+
+| | mode renseigné | mode vide |
+|---|---:|---:|
+| séjour clos (date de sortie présente) | 11 699 | **1 975** ← l'anomalie |
+| séjour en cours (sortie `NULL`) | 0 | 1 190 ← attendu |
+
+La case en haut à droite est l'anomalie ; celle en bas à droite est normale, un
+patient encore hospitalisé n'ayant pas de mode de sortie. La case en bas à
+gauche est vide, ce qui écarte l'incohérence symétrique — sortir sans être sorti.
+
+**Ces 1 975 séjours sont comptés au dénominateur du taux de réadmission**, qui
+exclut les sorties par décès, mutation et transfert, mais pas le mode vide. Le
+choix n'est pas neutre : les exclure porterait le taux de 5,38 % à 7,21 %, soit
+34 % d'écart relatif.
+
+Les données tranchent. En comparant le taux de retour à 30 jours selon le mode
+de sortie :
+
+| mode de sortie | retours sous 30 j | séjours clos | taux |
+|---|---:|---:|---:|
+| domicile | 312 | 5 814 | **5,37 %** |
+| *(mode inconnu)* | 107 | 1 975 | **5,42 %** |
+
+Les séjours au mode inconnu se comportent **exactement** comme les sorties à
+domicile. L'écart de 0,05 point est très largement contenu dans le bruit
+d'échantillonnage — à n = 1 975 et p ≈ 5,4 %, l'erreur type vaut ±0,5 point. Les
+exclure reviendrait donc à retirer une population indiscernable de celle qu'on
+garde : cela ne corrigerait aucun biais, cela en créerait un. **Ils restent au
+dénominateur**, et cette décision repose désormais sur une mesure plutôt que sur
+une convention.
+
+### Les retours après un décès
+
+1 231 séjours suivent un séjour terminé par un décès. Leur écart avec ce décès
+se répartit ainsi :
+
+| écart | séjours | |
+|---|---:|---|
+| négatif (−12 à −1 j) | 1 122 | l'admission commence **avant** le décès : chevauchement |
+| 0 jour | 91 | |
+| 1 jour | 12 | dans la fenêtre des 30 jours |
+| 2 jours | 6 | |
+
+**109 séjours tombent donc dans la fenêtre** et seraient comptés comme des
+réadmissions. La clause `mode_sortie_precedent NOT IN ('deces', ...)` les écarte
+tous : `est_readmission_30j` vaut 0 pour l'intégralité d'entre eux.
+
+L'effet sur le chiffre est dérisoire. Sans cette exclusion, le taux passerait de
+**5,38 % à 5,40 %** — numérateur et dénominateur grossissent dans les mêmes
+proportions (419 → 528, 7 789 → 9 785). **La règle ne défend pas la valeur, elle
+défend son sens** : on pourrait la retirer sans que personne ne le voie sur un
+tableau de bord, et publier 109 patients réadmis après leur propre décès.
+
+### Le numérateur est auditable
+
+Les deux exclusions sont consignées dans `ops.data_quality`, si bien que le
+numérateur publié se reconstitue sans lire une ligne de SQL :
+
+```
+retours dans la fenêtre de 30 jours                748
+  − retours après un décès           (écartés)   − 109
+  − retours après mutation/transfert (écartés)   − 220
+                                                 ─────
+  = réadmissions publiées                          419
+```
+
+Un test le vérifie à chaque exécution (`TestExclusionsDuTauxDeReadmission`).
+
+---
+
+## 4. Recalcul des sept indicateurs de synthèse
 
 Chaque valeur de `gold_pilotage.kpi_synthese` a été recalculée depuis les
 fichiers bruts, en réimplémentant la définition métier à la main.
@@ -151,7 +243,7 @@ sait toujours avec quels seuils un chiffre a été produit.
 
 ---
 
-## 4. Recalcul détaillé sur trois séjours
+## 5. Recalcul détaillé sur trois séjours
 
 Trois séjours contrastés, suivis à la main de bout en bout. Toutes les valeurs
 d'entrée se lisent directement dans `source-filestorage/`.
@@ -215,7 +307,7 @@ d'entrée se lisent directement dans `source-filestorage/`.
 
 ---
 
-## 5. Ce que le recalcul a corrigé
+## 6. Ce que le recalcul a corrigé
 
 Le premier recalcul manuel **ne tombait pas juste** : il trouvait 15 séjours
 rejetés au lieu de 136, et une DMS de 6,03 au lieu de 6,08.
@@ -235,7 +327,7 @@ est incohérent, que ce soit de deux heures ou de deux jours.
 
 ---
 
-## 6. Test de rejeu
+## 7. Test de rejeu
 
 Le pipeline doit pouvoir être relancé sans que les chiffres bougent. Deux
 `eds run` consécutifs, avec relevé des indicateurs avant, entre et après :
@@ -272,24 +364,44 @@ l'historique, sans reprise incrémentale à écrire ni à déboguer.
 
 ---
 
-## 7. Ce que cette validation ne couvre pas
+## 8. Ce que cette validation ne couvre pas
 
 Elle établit que **le pipeline calcule fidèlement ce qu'on lui a demandé de
 calculer**. Elle n'établit pas que les définitions métier retenues sont les
 bonnes : elles ont été choisies par des informaticiens, pas par des cliniciens.
-Trois méritent une relecture médicale avant tout usage réel :
+Trois méritent une relecture médicale avant tout usage réel.
 
-1. **Les seuils d'alerte** (FC < 60 ou > 100, SpO2 < 92, T > 38,0 °C). Ils
-   tombent dans des plages entièrement vides des données observées, donc le
-   décompte des alertes ne dépend pas de leur réglage fin — mais leur
-   pertinence clinique reste à confirmer.
-2. **La fenêtre de réadmission à 30 jours** et l'exclusion des sorties par
-   décès, mutation et transfert.
-3. **Les cinq tranches d'âge**, dont le découpage sert autant la lisibilité des
-   graphiques que la pertinence épidémiologique.
+**1 — Les seuils d'alerte** (FC < 60 ou > 100, SpO2 < 92, T > 38,0 °C). Ils
+tombent dans des plages entièrement vides des données observées, donc le
+décompte des alertes ne dépend pas de leur réglage fin. Leur pertinence clinique
+reste à confirmer.
 
-Elle ne couvre pas non plus les **anomalies signalées et conservées** : 7 978
-séjours qui se chevauchent, 1 231 admissions postérieures à un décès. Elles sont
-marquées dans `fait_sejour` (`est_chevauchant`, `est_apres_deces`) et non
-rejetées — les compter comme des erreurs de pipeline serait une faute, ce sont
-des propriétés des données source.
+**2 — La fenêtre de réadmission à 30 jours n'est pas exercée par ces données.**
+Sur les 8 726 séjours ayant un séjour précédent, l'écart maximal observé est de
+**2 jours**, et il n'existe **aucun** retour entre 3 et 30 jours :
+
+| écart | réadmissions |
+|---|---:|
+| 0 jour | 309 |
+| 1 jour | 98 |
+| 2 jours | 12 |
+| 3 à 30 jours | **0** |
+
+Une fenêtre à 2 jours produirait donc exactement le même chiffre. Les 30 jours
+sont une convention défendable — c'est l'usage courant — mais ces données ne la
+discriminent d'aucune autre. Le taux publié mesure en réalité des **retours sous
+48 heures**, ce qui, dans un hôpital réel, relèverait plus souvent du transfert
+mal codé que de la réadmission. La valeur de 5,4 % ne doit pas être lue comme un
+indicateur de qualité des soins.
+
+**3 — Les cinq tranches d'âge**, dont le découpage sert autant la lisibilité des
+graphiques que la pertinence épidémiologique.
+
+Enfin, cette validation ne se prononce pas sur les **anomalies conservées**
+décrites en [section 3](#3-anomalies-conservées-et-ce-quelles-coûtent) : elle
+mesure leur ampleur et l'effet des règles qui les traitent, elle ne dit pas si
+ces données devraient exister. 53,7 % de séjours qui se chevauchent et 8,3 %
+d'admissions postérieures à un décès sont des taux qu'aucun établissement réel
+ne présenterait ; ils appartiennent au jeu de données, pas au pipeline. La
+réponse correcte n'est pas de les corriger en silence, c'est de les remonter à
+l'émetteur — et, en attendant, de les afficher.

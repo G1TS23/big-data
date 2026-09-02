@@ -386,6 +386,35 @@ INSERT INTO ops.data_quality
 SELECT {b:String}, 'fait_sejour', 'admission_apres_deces', 'SIGNALEMENT',
        count(), countIf(est_apres_deces = 1) FROM silver.fait_sejour;
 
+-- Sortie renseignée, mais mode de sortie vide : le patient est sorti, on ne
+-- sait pas comment. Trou des données source, pas du traitement — donc signalé
+-- et non rejeté. Il porte sur 14 % des séjours clos et pèse sur le dénominateur
+-- du taux de réadmission : voir docs/VALIDATION.md.
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'fait_sejour', 'mode_sortie_manquant', 'SIGNALEMENT',
+       countIf(est_en_cours = 0),
+       countIf(est_en_cours = 0 AND discharge_mode = '') FROM silver.fait_sejour;
+
+-- Les deux exclusions du taux de réadmission, rendues auditables : le
+-- numérateur publié est exactement « retours dans la fenêtre » moins ces deux
+-- lignes. Un retour après un décès est impossible, un retour après mutation ou
+-- transfert n'est pas un retour — le patient n'était jamais rentré chez lui.
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'fait_sejour', 'retour_apres_deces_ecarte', 'SIGNALEMENT',
+       countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}),
+       countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}
+               AND mode_sortie_precedent = 'deces') FROM silver.fait_sejour;
+
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'fait_sejour', 'retour_apres_mutation_ecarte', 'SIGNALEMENT',
+       countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}),
+       countIf(jours_depuis_sortie_precedente BETWEEN 0 AND {fenetre:UInt16}
+               AND mode_sortie_precedent IN ('mutation', 'transfert'))
+FROM silver.fait_sejour;
+
 INSERT INTO ops.data_quality
     (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
 SELECT {b:String}, 'fait_monitoring', 'releve_en_alerte', 'SIGNALEMENT',
