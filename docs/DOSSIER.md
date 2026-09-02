@@ -25,6 +25,12 @@ incident sont dans le [guide d'exploitation](EXPLOITATION.md).
 
 # Partie 1 — L'interface d'analyse
 
+> Cette partie décrit l'entrepôt **tel qu'il a été livré initialement**, sur les
+> cinq flux du sujet. Le CHU a demandé ensuite une évolution : elle fait l'objet
+> de la [partie 2](#partie-2--lévolution-demandée-par-le-chu), qui s'ajoute à
+> celle-ci sans la remplacer. Les deux étapes sont tenues séparées pour qu'on
+> voie ce que chacune a coûté.
+
 ## 1. Le besoin
 
 La direction du CHU veut tirer deux usages de données aujourd'hui éparpillées
@@ -51,8 +57,8 @@ fin, c'est une contrainte de conception à chaque étape.
 
 ## 2. Les sources
 
-Le CHU dépose ses fichiers dans un espace en **lecture seule**. Six flux
-déclarés — neuf tables une fois les référentiels éclatés — trois formats, et
+Le CHU dépose ses fichiers dans un espace en **lecture seule**. Cinq flux
+déclarés — six tables une fois les référentiels éclatés — trois formats, et
 chacun son calendrier. Ce dernier point compte : parcourir les dates d'un flux
 pour en lire un autre n'en lirait qu'une partie, sans erreur visible.
 
@@ -62,8 +68,9 @@ pour en lire un autre n'en lirait qu'une partie, sans erreur visible.
 | `sejours` | CSV | 28 | 6 797 séjours |
 | `diagnostics` | JSON imbriqué | 28 | 12 720 codes CIM-10 |
 | `monitoring` | Parquet | 28 | 41 778 relevés |
-| `actes` | Parquet | 1 | 8 112 actes *(évolution)* |
-| `referentiels` | CSV | 2 | services, CIM-10, CCAM, description *(évolution)* |
+| `referentiels` | CSV | 1 | 8 services, 13 codes CIM-10 |
+
+89 fichiers au total, 3,2 Mo.
 
 **`patients.csv` contient l'identité réelle** : `nir`, `nom`, `prenom`,
 `birth_date`, et un `patient_id` en clair. Ces colonnes ne doivent jamais entrer
@@ -199,9 +206,9 @@ physiologiques** est fausse et sort ; une valeur **hors seuils cliniques** est
 vraie mais mauvaise pour le patient, elle reste et devient une alerte. Les
 confondre reviendrait à supprimer les patients qui vont mal.
 
-Treize contrôles alimentent `ops.data_quality` à chaque exécution : **deux
-règles de rejet** — sortie antérieure à l'admission, fréquence cardiaque hors
-bornes — et **onze signalements**. Le déséquilibre est voulu : on écarte le moins
+Onze contrôles alimentent `ops.data_quality` à chaque exécution : **deux règles
+de rejet** — sortie antérieure à l'admission, fréquence cardiaque hors bornes —
+et **neuf signalements**. Le déséquilibre est voulu : on écarte le moins
 possible, on compte tout.
 
 Deux de ces signalements valent zéro sur le jeu livré, et **les contrôles restent
@@ -211,12 +218,12 @@ La supprimer parce qu'elle affiche zéro rendrait indistinguables « aucune
 anomalie » et « plus personne ne regarde ».
 
 Aucune ligne ne disparaît sans être comptée : l'équation
-`source = silver + rejets + doublons` se ferme sur les neuf flux, et un outil la
-rejoue à la demande.
+`source = silver + rejets + doublons` se ferme sur les six tables, et un outil
+la rejoue à la demande.
 
 ### Le modèle : une constellation, pas un flocon
 
-Silver porte quatre tables de faits et quatre dimensions conformes :
+Silver porte trois tables de faits et trois dimensions conformes :
 
 ```mermaid
 erDiagram
@@ -224,14 +231,13 @@ erDiagram
     dim_patient  ||--o{ fait_diagnostic : ""
     dim_service  ||--o{ fait_sejour     : ""
     dim_service  ||--o{ fait_monitoring : ""
-    dim_service  ||--o{ fait_acte       : ""
     dim_cim10    ||--o{ fait_diagnostic : ""
-    dim_ccam     ||--o{ fait_acte       : ""
 ```
 
-`dim_service` est partagée par trois faits, `dim_patient` par deux : c'est ce qui
-autorise à comparer un service sur son activité, ses constantes et ses actes sans
-recoller des tables entre elles.
+`dim_service` et `dim_patient` sont partagées par deux faits chacune : c'est ce
+qui autorise à comparer un service sur son activité et sur ses constantes sans
+recoller des tables entre elles. C'est aussi ce qui a permis à l'évolution de
+brancher un quatrième fait sans toucher au modèle.
 
 **Il n'y a pas de `dim_date`.** Une table de dates n'apporterait ici qu'un
 `JOIN` de plus : le moteur sait extraire mois et jour d'un horodatage, et
@@ -239,9 +245,10 @@ recoller des tables entre elles.
 avec un calendrier métier — jours fériés, périodes budgétaires — que le CHU ne
 fournit pas.
 
-Deux faits portent un `service_code` **dénormalisé** depuis le séjour. Ce n'est
-pas une redondance mais la condition pour ne jamais joindre deux tables de faits
-entre elles : une telle jointure multiplierait les lignes sans lever d'erreur.
+`fait_monitoring` porte un `service_code` **dénormalisé** depuis le séjour. Ce
+n'est pas une redondance mais la condition pour ne jamais joindre deux tables de
+faits entre elles : une telle jointure multiplierait les lignes sans lever
+d'erreur.
 
 ### La traçabilité
 
@@ -275,13 +282,13 @@ de réponses du commanditaire. Le détail est dans [VALIDATION.md](VALIDATION.md
 
 ## 6. Les visualisations
 
-Trois tableaux de bord Metabase, 28 cartes, une collection par usage.
+Trois tableaux de bord Metabase, 22 cartes, une collection par usage.
 
 | tableau de bord | public | cartes |
 |---|---|---:|
-| Pilotage hospitalier | direction, cadres de santé | 17 |
-| Recherche clinique | unité de recherche | 8 |
-| Exploitation du pipeline | équipe technique | 6 |
+| Pilotage hospitalier | direction, cadres de santé | 10 |
+| Recherche clinique | unité de recherche | 7 |
+| Exploitation du pipeline | équipe technique | 5 |
 
 Metabase en édition communautaire n'exporte pas ses tableaux de bord : ils sont
 donc **décrits dans `config/dashboards.yml`**, versionnés et reconstructibles à
@@ -347,6 +354,11 @@ signalées, jamais corrigées en silence : la réponse correcte est de les remon
 
 # Partie 2 — L'évolution demandée par le CHU
 
+> Cette partie **s'ajoute** à la partie 1. Tout ce qui y est décrit — les cinq
+> flux, les trois faits, les vingt-deux cartes — reste en place et continue de
+> produire les mêmes chiffres. C'est précisément ce que le CHU demandait :
+> *faire évoluer sans tout refaire, et sans rien casser.*
+
 ## 8. La demande
 
 Le CHU a déposé, le **2026-08-29**, un dépôt supplémentaire : une description
@@ -365,20 +377,51 @@ service, actes par type, densité d'actes par lit, montant facturé.
 ## 9. Ce qui a changé, ce qui n'a pas bougé
 
 **Le socle n'a pas bougé.** Sur 92 fichiers, le lake n'en a copié que **3** : les
-89 autres sont reconnus sur leur date et pas un octet n'en est relu. La
+89 de la partie 1 sont reconnus sur leur date et pas un octet n'en est relu. La
 découverte teste l'existence de chaque fichier et ignore les dates où il manque,
 si bien qu'un référentiel arrivant en cours de route s'ingère comme les autres —
 aucune configuration particulière n'a été nécessaire.
 
-Ce qui a été ajouté :
+Le coût de l'évolution, mesuré :
 
-| couche | ajout |
-|---|---|
-| `config/sources.yml` | un flux `actes`, deux fichiers de référentiel |
-| **bronze** | `actes`, `description_service`, `ccam` |
-| **silver** | `dim_service` enrichie, `dim_ccam`, `fait_acte` |
-| **gold** | trois tables servant les cinq indicateurs |
-| restitution | six cartes sur le tableau de bord Pilotage |
+| | Partie 1 | après l'évolution | écart |
+|---|---:|---:|---:|
+| flux déclarés | 5 | 6 | +1 |
+| fichiers source | 89 | 92 | +3 |
+| tables bronze | 6 | 9 | +3 |
+| dimensions silver | 3 | 4 | +1, une enrichie |
+| faits silver | 3 | 4 | +1 |
+| tables gold pilotage | 8 | 11 | +3 |
+| contrôles qualité | 11 | 13 | +2 |
+| cartes | 22 | 28 | +6 |
+| **indicateurs de la partie 1** | — | — | **inchangés** |
+
+Aucune table de la partie 1 n'a été supprimée ni redéfinie. `dim_service` est la
+seule à changer de forme : elle **gagne** trois colonnes — catégorie, capacité en
+lits, pôle — et un témoin `est_decrit`. Ses deux colonnes d'origine sont
+intactes, si bien que les **cinq indicateurs qui s'appuyaient déjà sur elle** —
+DMS par service, activité par jour, occupation, réadmission par service, alertes
+par jour — continuent de fonctionner sans qu'une ligne de leur SQL ait changé.
+
+C'est le bénéfice d'une **dimension conforme** : on l'enrichit par la droite, et
+ce qui la lisait déjà continue de la lire.
+
+Le modèle après évolution, la partie 1 en gris :
+
+```mermaid
+erDiagram
+    dim_patient  ||--o{ fait_sejour     : ""
+    dim_patient  ||--o{ fait_diagnostic : ""
+    dim_service  ||--o{ fait_sejour     : ""
+    dim_service  ||--o{ fait_monitoring : ""
+    dim_cim10    ||--o{ fait_diagnostic : ""
+    dim_service  ||--o{ fait_acte       : "ajouté"
+    dim_ccam     ||--o{ fait_acte       : "ajouté"
+```
+
+`dim_service` passe de deux à trois faits : c'est elle qui porte le rattachement
+des actes, et c'est la raison pour laquelle aucune jointure entre deux faits
+n'est nécessaire.
 
 La hiérarchie **service → catégorie → pôle** est traitée comme trois niveaux
 d'agrégation, non comme une redondance : elle permet de lire la même activité à
