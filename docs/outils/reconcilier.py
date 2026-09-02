@@ -57,7 +57,13 @@ def compter_source(racine: Path) -> dict[str, dict[str, int]]:
     releves = sum(pq.read_table(d / "monitoring.parquet").num_rows
                   for d in depots("monitoring"))
 
-    referentiels = depots("referentiels")[-1]
+    actes = sum(pq.read_table(d / "actes.parquet").num_rows for d in depots("actes"))
+
+    # Chaque référentiel a SON dépôt : services et cim10 le 1er août, la
+    # description des services et la CCAM le 29. On cherche donc chaque fichier
+    # là où il est, plutôt que de supposer un dépôt commun.
+    def referentiel(nom: str) -> Path:
+        return next(d / nom for d in depots("referentiels") if (d / nom).is_file())
     return {
         # « doublons » : ce que la déduplication doit légitimement retirer.
         "patients": {"source": lignes_patients,
@@ -65,8 +71,12 @@ def compter_source(racine: Path) -> dict[str, dict[str, int]]:
         "sejours": {"source": lignes_sejours, "doublons": 0},
         "diagnostics": {"source": codes, "doublons": 0},
         "monitoring": {"source": releves, "doublons": 0},
-        "services": {"source": lignes_csv(referentiels / "services.csv"), "doublons": 0},
-        "cim10": {"source": lignes_csv(referentiels / "cim10.csv"), "doublons": 0},
+        "actes": {"source": actes, "doublons": 0},
+        "services": {"source": lignes_csv(referentiel("services.csv")), "doublons": 0},
+        "cim10": {"source": lignes_csv(referentiel("cim10.csv")), "doublons": 0},
+        "ccam": {"source": lignes_csv(referentiel("ccam.csv")), "doublons": 0},
+        "description_service": {
+            "source": lignes_csv(referentiel("description_service.csv")), "doublons": 0},
     }
 
 
@@ -78,7 +88,13 @@ CORRESPONDANCES = {
     "diagnostics": ("bronze.diagnostics", "sum(length(diagnostics))",
                     "silver.fait_diagnostic", "fait_diagnostic"),
     "monitoring": ("bronze.monitoring", "count()", "silver.fait_monitoring", "fait_monitoring"),
+    "actes": ("bronze.actes", "count()", "silver.fait_acte", "fait_acte"),
     "services": ("bronze.services", "count()", "silver.dim_service", "dim_service"),
+    "ccam": ("bronze.ccam", "count()", "silver.dim_ccam", "dim_ccam"),
+    # La description n'a pas de table à elle : elle enrichit dim_service. Son
+    # « silver » est donc le nombre de services effectivement décrits.
+    "description_service": ("bronze.description_service", "count()",
+                            "silver.dim_service WHERE est_decrit = 1", "dim_service"),
     "cim10": ("bronze.cim10", "count()", "silver.dim_cim10", "dim_cim10"),
 }
 
@@ -105,7 +121,7 @@ def main() -> int:
     with connect(reglages) as client:
         entrepot = compter_entrepot(client)
 
-    entete = f"{'table':<14}{'source':>9}{'bronze':>9}{'silver':>9}{'rejets':>9}{'doublons':>10}   "
+    entete = f"{'table':<21}{'source':>9}{'bronze':>9}{'silver':>9}{'rejets':>9}{'doublons':>10}   "
     print(entete + "équation")
     print("─" * (len(entete) + 8))
 
@@ -116,7 +132,7 @@ def main() -> int:
         juste = somme == s["source"] and e["bronze"] == s["source"]
         ecarts += not juste
         verdict = "✓" if juste else f"✗ écart de {s['source'] - somme}"
-        print(f"{nom:<14}{s['source']:>9}{e['bronze']:>9}{e['silver']:>9}"
+        print(f"{nom:<21}{s['source']:>9}{e['bronze']:>9}{e['silver']:>9}"
               f"{e['rejets']:>9}{s['doublons']:>10}   {verdict}")
 
     print()

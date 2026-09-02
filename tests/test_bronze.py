@@ -68,7 +68,8 @@ class TestDeclarationDesFlux:
     def test_les_referentiels_ont_chacun_leur_cible(self):
         fichiers = load_sources()["referentiels"]["files"]
         cibles = {f["bronze"]["table"] for f in fichiers}
-        assert cibles == {"bronze.services", "bronze.cim10"}
+        assert cibles == {"bronze.services", "bronze.cim10",
+                          "bronze.description_service", "bronze.ccam"}
 
     def test_schema_bronze_couvre_les_colonnes_du_lake(self):
         """Le schéma d'insertion doit décrire exactement les colonnes écrites

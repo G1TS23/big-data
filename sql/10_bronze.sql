@@ -104,6 +104,25 @@ ENGINE = MergeTree
 PARTITION BY _ingestion_date
 ORDER BY (stay_id, ts);
 
+-- ─── Actes médicaux ─────────────────────────────────────────────────────────
+-- Le service n'est PAS porté par l'acte : il vient du séjour. La table le
+-- reflète — y ajouter un service_code inviterait à le remplir depuis l'acte,
+-- ce que la source ne permet pas.
+CREATE TABLE IF NOT EXISTS bronze.actes
+(
+    stay_id         String,
+    code_ccam       LowCardinality(String),
+    acte_ts         DateTime          CODEC(DoubleDelta, ZSTD(1)),
+
+    _source_file    LowCardinality(String) CODEC(ZSTD(1)),
+    _ingestion_date Date                  CODEC(ZSTD(1)),
+    _batch_id       LowCardinality(String) CODEC(ZSTD(1)),
+    _loaded_at      DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(1))
+)
+ENGINE = MergeTree
+PARTITION BY _ingestion_date
+ORDER BY (stay_id, acte_ts);
+
 -- Nomenclatures. Déposées le premier jour, rechargées intégralement si le CHU
 -- les redépose : silver retiendra la version au _ingestion_date le plus récent.
 CREATE TABLE IF NOT EXISTS bronze.services
@@ -133,3 +152,41 @@ CREATE TABLE IF NOT EXISTS bronze.cim10
 ENGINE = MergeTree
 PARTITION BY _ingestion_date
 ORDER BY code_cim10;
+
+-- Description des services, déposée le 2026-08-29. Elle ENRICHIT bronze.services
+-- sans le remplacer : deux fichiers, deux tables, une seule dimension en silver.
+--
+-- capacite_lits est Nullable : un service non décrit n'a pas zéro lit, il a un
+-- nombre de lits inconnu. Écrire 0 fabriquerait une division par zéro dans la
+-- densité d'actes par lit, et un chiffre faux vaut moins qu'une case vide.
+CREATE TABLE IF NOT EXISTS bronze.description_service
+(
+    service_code    LowCardinality(String),
+    categorie       LowCardinality(String),
+    capacite_lits   Nullable(UInt16),
+    pole            LowCardinality(String),
+
+    _source_file    LowCardinality(String) CODEC(ZSTD(1)),
+    _ingestion_date Date                  CODEC(ZSTD(1)),
+    _batch_id       LowCardinality(String) CODEC(ZSTD(1)),
+    _loaded_at      DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(1))
+)
+ENGINE = MergeTree
+PARTITION BY _ingestion_date
+ORDER BY service_code;
+
+-- Nomenclature des actes, avec le tarif servant à la facturation T2A.
+CREATE TABLE IF NOT EXISTS bronze.ccam
+(
+    code_ccam       LowCardinality(String),
+    libelle         String,
+    tarif_euros     Nullable(UInt32),
+
+    _source_file    LowCardinality(String) CODEC(ZSTD(1)),
+    _ingestion_date Date                  CODEC(ZSTD(1)),
+    _batch_id       LowCardinality(String) CODEC(ZSTD(1)),
+    _loaded_at      DateTime DEFAULT now() CODEC(DoubleDelta, ZSTD(1))
+)
+ENGINE = MergeTree
+PARTITION BY _ingestion_date
+ORDER BY code_ccam;

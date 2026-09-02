@@ -115,6 +115,51 @@ CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_alertes_jour_general
     _batch_id       LowCardinality(String)
 ) ENGINE = MergeTree ORDER BY (jour, motif_alerte);
 
+-- ─── Évolution : activité par catégorie, et actes médicaux ──────────────────
+-- Trois des cinq indicateurs demandés — actes par service, densité par lit,
+-- montant facturé — partagent le MÊME GRAIN : un service. Ils tiennent donc
+-- dans une seule table plutôt que dans trois presque identiques. Le grain d'une
+-- table de restitution est ce qui la définit ; le multiplier sans raison
+-- multiplierait aussi les occasions de les voir diverger.
+CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_actes_service
+(
+    service_code     LowCardinality(String),
+    service_label    String,
+    categorie        LowCardinality(String),
+    pole             LowCardinality(String),
+    actes            UInt64,
+    sejours          UInt64,
+    actes_par_sejour Float64,
+    capacite_lits    Nullable(UInt16),
+    -- Nullable : un service sans description n'a pas une densité nulle, il a
+    -- une densité qu'on ne sait pas calculer. La carte affichera une case vide.
+    actes_par_lit    Nullable(Float64),
+    montant_t2a      UInt64,
+    _batch_id        LowCardinality(String)
+) ENGINE = MergeTree ORDER BY service_code;
+
+CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_activite_categorie
+(
+    categorie        LowCardinality(String),
+    services         UInt64,
+    sejours          UInt64,
+    sejours_clos     UInt64,
+    dms_jours        Float64,
+    capacite_lits    Nullable(UInt32),
+    _batch_id        LowCardinality(String)
+) ENGINE = MergeTree ORDER BY categorie;
+
+CREATE TABLE IF NOT EXISTS gold_pilotage.kpi_actes_type
+(
+    code_ccam        LowCardinality(String),
+    libelle          String,
+    actes            UInt64,
+    tarif_euros      Nullable(UInt32),
+    montant_t2a      UInt64,
+    part_des_actes   Float64,
+    _batch_id        LowCardinality(String)
+) ENGINE = MergeTree ORDER BY code_ccam;
+
 -- ─── Reconstruction ────────────────────────────────────────────────────────
 
 TRUNCATE TABLE gold_pilotage.kpi_synthese;
@@ -124,6 +169,9 @@ TRUNCATE TABLE gold_pilotage.kpi_urgences_jour;
 TRUNCATE TABLE gold_pilotage.kpi_occupation_jour;
 TRUNCATE TABLE gold_pilotage.kpi_readmission_service;
 TRUNCATE TABLE gold_pilotage.kpi_alertes_jour;
+TRUNCATE TABLE gold_pilotage.kpi_actes_service;
+TRUNCATE TABLE gold_pilotage.kpi_activite_categorie;
+TRUNCATE TABLE gold_pilotage.kpi_actes_type;
 TRUNCATE TABLE gold_pilotage.kpi_alertes_jour_general;
 
 INSERT INTO gold_pilotage.kpi_synthese
@@ -287,3 +335,74 @@ FROM (
 -- Les relevés sans alerte ont servi de dénominateur ; ils n'ont pas leur place
 -- dans une table qui décrit les alertes.
 WHERE motif_alerte != '';
+
+-- ─── Actes par service, densité par lit, montant facturé ────────────────────
+-- Le service de l'acte vient du SÉJOUR, et il a déjà été dénormalisé sur
+-- fait_acte en silver. On ne joint donc JAMAIS fait_acte à fait_sejour : une
+-- telle jointure multiplierait chaque séjour par son nombre d'actes, et le
+-- compte des séjours serait faux sans qu'aucune erreur ne se lève.
+--
+-- Les deux comptes sont agrégés SÉPARÉMENT, puis rapprochés sur service_code —
+-- une clé de dimension, pas une ligne de fait.
+INSERT INTO gold_pilotage.kpi_actes_service
+SELECT d.service_code, d.service_label, d.categorie, d.pole,
+       a.actes, s.sejours,
+       round(a.actes / s.sejours, 2)                    AS actes_par_sejour,
+       d.capacite_lits,
+       round(a.actes / d.capacite_lits, 1)              AS actes_par_lit,
+       a.montant_t2a,
+       {b:String}
+FROM silver.dim_service AS d
+LEFT JOIN (
+    SELECT f.service_code AS service_code,
+           count()        AS actes,
+           sum(ifNull(c.tarif_euros, 0)) AS montant_t2a
+    FROM silver.fait_acte AS f
+    INNER JOIN silver.dim_ccam AS c ON c.code_ccam = f.code_ccam
+    GROUP BY f.service_code
+) AS a ON a.service_code = d.service_code
+LEFT JOIN (
+    SELECT service_code, count() AS sejours
+    FROM silver.fait_sejour GROUP BY service_code
+) AS s ON s.service_code = d.service_code;
+
+-- ─── Activité et DMS par catégorie de service ───────────────────────────────
+-- La catégorie vient de la dimension enrichie. Les services non décrits y
+-- figurent sous « non décrit » : ils pèsent dans l'activité de l'hôpital, les
+-- masquer fausserait le total.
+INSERT INTO gold_pilotage.kpi_activite_categorie
+SELECT a.categorie, a.services, a.sejours, a.sejours_clos, a.dms_jours,
+       cap.capacite_lits, {b:String}
+FROM (
+    SELECT d.categorie AS categorie,
+           uniqExact(d.service_code)   AS services,
+           count()                     AS sejours,
+           countIf(s.est_en_cours = 0) AS sejours_clos,
+           round(avgIf(s.duree_jours, s.est_en_cours = 0), 2) AS dms_jours
+    FROM silver.fait_sejour AS s
+    INNER JOIN silver.dim_service AS d ON d.service_code = s.service_code
+    GROUP BY d.categorie
+) AS a
+LEFT JOIN (
+    -- La capacité s'agrège depuis la DIMENSION, jamais depuis les séjours : la
+    -- sommer ligne à ligne compterait les lits une fois par séjour.
+    --
+    -- Et elle n'est renseignée que si TOUS les services de la catégorie le
+    -- sont. Une somme partielle serait sous-estimée sans le dire, ce qui est
+    -- pire qu'une case vide : elle se laisserait comparer aux autres.
+    SELECT categorie,
+           if(countIf(capacite_lits IS NULL) = 0,
+              toNullable(toUInt32(sum(capacite_lits))),
+              CAST(NULL AS Nullable(UInt32))) AS capacite_lits
+    FROM silver.dim_service GROUP BY categorie
+) AS cap ON cap.categorie = a.categorie;
+
+-- ─── Actes par type d'acte ──────────────────────────────────────────────────
+INSERT INTO gold_pilotage.kpi_actes_type
+SELECT c.code_ccam, c.libelle, count() AS actes, c.tarif_euros,
+       count() * ifNull(c.tarif_euros, 0) AS montant_t2a,
+       round(count() / sum(count()) OVER (), 4) AS part_des_actes,
+       {b:String}
+FROM silver.fait_acte AS f
+INNER JOIN silver.dim_ccam AS c ON c.code_ccam = f.code_ccam
+GROUP BY c.code_ccam, c.libelle, c.tarif_euros;

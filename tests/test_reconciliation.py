@@ -81,19 +81,22 @@ class TestVolumesAttendus:
     def test_source(self, source):
         assert {t: source[t]["source"] for t in CORRESPONDANCES} == {
             "patients": 18_000, "sejours": 6_797, "diagnostics": 12_720,
-            "monitoring": 41_778, "services": 8, "cim10": 13,
+            "monitoring": 41_778, "actes": 8_112, "services": 8,
+            "ccam": 8, "description_service": 7, "cim10": 13,
         }
 
     def test_silver(self, entrepot):
         assert {t: entrepot[t]["silver"] for t in CORRESPONDANCES} == {
             "patients": 6_000, "sejours": 6_729, "diagnostics": 12_720,
-            "monitoring": 40_920, "services": 8, "cim10": 13,
+            "monitoring": 40_920, "actes": 8_112, "services": 8,
+            "ccam": 8, "description_service": 7, "cim10": 13,
         }
 
     def test_rejets(self, entrepot):
         assert {t: entrepot[t]["rejets"] for t in CORRESPONDANCES} == {
             "patients": 0, "sejours": 68, "diagnostics": 0,
-            "monitoring": 858, "services": 0, "cim10": 0,
+            "monitoring": 858, "actes": 0, "services": 0,
+            "ccam": 0, "description_service": 0, "cim10": 0,
         }
 
     def test_les_doublons_patients_sont_des_instantanes(self, source):
@@ -126,6 +129,8 @@ class TestAnomaliesAttendues:
 # zéro, pour qu'« aucune anomalie » se distingue de « plus personne ne mesure ».
 SIGNALEMENTS = {
     "sejours_chevauchants": 0,
+    "acte_sans_sejour_retenu": 82,
+    "service_sans_description": 1,
     "mode_sortie_manquant": 0,
     "admission_apres_deces": 133,
     "sejour_en_cours": 683,

@@ -91,7 +91,7 @@ EDS_PLANIFICATION="*/2 * * * *" docker compose up -d scheduler   # accélérer, 
 Le dépôt quotidien du CHU est versionné dans `source-filestorage/`, à la demande
 du commanditaire : cloner puis lancer suffit, sans dépendance à un chemin externe.
 
-Chaque flux a son propre calendrier — 89 fichiers, 3,2 Mo :
+Chaque flux a son propre calendrier — 92 fichiers, 3,3 Mo :
 
 | flux | dépôts | période | volume |
 |---|---:|---|---:|
@@ -100,6 +100,14 @@ Chaque flux a son propre calendrier — 89 fichiers, 3,2 Mo :
 | `monitoring/<date>/monitoring.parquet` | 28 | 2026-08-01 → 08-28 | 41 778 relevés |
 | `patients/<date>/patients.csv` | 3 | 2026-08-26 → 08-28 | 6 000 patients, en instantanés |
 | `referentiels/<date>/{services,cim10}.csv` | 1 | 2026-08-01 | 8 services, 13 codes CIM-10 |
+| `actes/<date>/actes.parquet` | 1 | 2026-08-29 | 8 112 actes médicaux |
+| `referentiels/<date>/{description_service,ccam}.csv` | 1 | 2026-08-29 | 7 services décrits, 8 actes CCAM |
+
+Les deux derniers flux sont arrivés après coup, et n'ont demandé aucune
+adaptation du socle : la découverte teste l'existence de chaque fichier et
+ignore les dates où il manque, si bien qu'un référentiel qui arrive en cours de
+route s'ingère comme les autres — et seuls les 3 fichiers nouveaux ont été
+copiés dans le lake.
 
 Le détail des volumes et leur réconciliation couche par couche sont dans
 [la validation des chiffres](docs/VALIDATION.md).
@@ -167,4 +175,4 @@ config/dashboards.yml  spécification des tableaux de bord
 
 - [Dossier de conception](docs/DOSSIER.md) — besoin, architecture justifiée, traitements, indicateurs, limites
 - [Guide d'exploitation](docs/EXPLOITATION.md) — lancement, planification, reprise sur incident
-- [Validation des chiffres](docs/VALIDATION.md) — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs, limites connues et chiffrées
+- [Validation des chiffres](docs/VALIDATION.md) — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs, confrontation au corrigé, justification de l'évolution, limites chiffrées

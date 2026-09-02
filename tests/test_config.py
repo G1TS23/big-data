@@ -52,9 +52,9 @@ class TestRefusDeDemarrage:
 
 
 class TestDeclarationDesFlux:
-    def test_les_cinq_flux_sont_declares(self):
+    def test_les_six_flux_sont_declares(self):
         assert set(load_sources()) == {"patients", "sejours", "diagnostics",
-                                       "monitoring", "referentiels"}
+                                       "monitoring", "actes", "referentiels"}
 
     def test_seuls_les_flux_porteurs_d_identite_ont_une_politique(self):
         """Une politique de confidentialité sur un flux qui n'en a pas besoin

@@ -30,13 +30,35 @@ CREATE TABLE IF NOT EXISTS silver.dim_patient
 )
 ENGINE = MergeTree ORDER BY patient_key;
 
+-- Trois niveaux d'agrégation croissants, et non trois fois la même chose :
+--   service_label (le plus fin) → categorie (regroupe des services) → pole.
+-- La description arrive dans un second fichier, déposé plus tard ; elle enrichit
+-- la dimension sans la remplacer.
 CREATE TABLE IF NOT EXISTS silver.dim_service
 (
     service_code  LowCardinality(String),
     service_label String,
+    categorie     LowCardinality(String),
+    -- Nullable, et non 0 : un service non décrit n'a pas zéro lit, il a un
+    -- nombre de lits INCONNU. Écrire 0 diviserait par zéro dans la densité
+    -- d'actes par lit, et produirait un infini là où il faut une case vide.
+    capacite_lits Nullable(UInt16),
+    pole          LowCardinality(String),
+    -- Témoin explicite plutôt qu'un test sur une chaîne vide au fil des requêtes.
+    est_decrit    UInt8,
     _batch_id     LowCardinality(String) CODEC(ZSTD(1))
 )
 ENGINE = MergeTree ORDER BY service_code;
+
+-- Nomenclature des actes, avec le tarif servant à la facturation T2A.
+CREATE TABLE IF NOT EXISTS silver.dim_ccam
+(
+    code_ccam     LowCardinality(String),
+    libelle       String,
+    tarif_euros   Nullable(UInt32),
+    _batch_id     LowCardinality(String) CODEC(ZSTD(1))
+)
+ENGINE = MergeTree ORDER BY code_ccam;
 
 CREATE TABLE IF NOT EXISTS silver.dim_cim10
 (
@@ -152,6 +174,25 @@ FROM (
 INNER JOIN silver.dim_patient AS p ON p.patient_key = v.patient_key
 INNER JOIN silver.dim_service AS d ON d.service_code = v.service_code;
 
+-- ─── fait_acte ──────────────────────────────────────────────────────────────
+-- service_code est DÉNORMALISÉ ici, depuis le séjour, exactement comme sur
+-- fait_monitoring. C'est ce qui permet ensuite de compter les actes par service
+-- sans jamais joindre deux tables de faits entre elles : une jointure
+-- fait_acte × fait_sejour multiplierait les lignes dès qu'un séjour porte
+-- plusieurs actes, et le total serait faux sans qu'aucune erreur ne se lève.
+CREATE TABLE IF NOT EXISTS silver.fait_acte
+(
+    stay_id       String,
+    service_code  LowCardinality(String),
+    code_ccam     LowCardinality(String),
+    acte_ts       DateTime,
+    _batch_id     LowCardinality(String) CODEC(ZSTD(1)),
+    _built_at     DateTime DEFAULT now()
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(acte_ts)
+ORDER BY (service_code, code_ccam, acte_ts);
+
 -- ─── Reconstruction ─────────────────────────────────────────────────────────
 --
 -- Les tables sont vidées avant d'être réécrites. Une panne au milieu laisse
@@ -167,14 +208,44 @@ INNER JOIN silver.dim_service AS d ON d.service_code = v.service_code;
 TRUNCATE TABLE silver.dim_patient;
 TRUNCATE TABLE silver.dim_service;
 TRUNCATE TABLE silver.dim_cim10;
+TRUNCATE TABLE silver.dim_ccam;
 TRUNCATE TABLE silver.fait_sejour;
 TRUNCATE TABLE silver.fait_diagnostic;
 TRUNCATE TABLE silver.fait_monitoring;
+TRUNCATE TABLE silver.fait_acte;
 
 -- Référentiels : on retient le dépôt le plus récent.
-INSERT INTO silver.dim_service (service_code, service_label, _batch_id)
-SELECT service_code, argMax(service_label, _ingestion_date), {b:String}
-FROM bronze.services GROUP BY service_code;
+-- LEFT JOIN, et non INNER : le référentiel de description est INCOMPLET — il
+-- couvre 7 services sur 8. Un INNER JOIN ferait disparaître le huitième de tous
+-- les indicateurs par catégorie et par pôle, sans un mot. Le service est donc
+-- conservé, sa description marquée absente, et il reste visible partout où on
+-- l'agrège : mieux vaut une ligne « non décrit » qu'un trou silencieux.
+INSERT INTO silver.dim_service
+    (service_code, service_label, categorie, capacite_lits, pole, est_decrit, _batch_id)
+SELECT s.service_code, s.service_label,
+       if(d.service_code = '', 'non décrit', d.categorie) AS categorie,
+       d.capacite_lits,
+       if(d.service_code = '', 'non décrit', d.pole)      AS pole,
+       toUInt8(d.service_code != '')                      AS est_decrit,
+       {b:String}
+FROM (
+    SELECT service_code, argMax(service_label, _ingestion_date) AS service_label
+    FROM bronze.services GROUP BY service_code
+) AS s
+LEFT JOIN (
+    SELECT service_code,
+           argMax(categorie, _ingestion_date)     AS categorie,
+           argMax(capacite_lits, _ingestion_date) AS capacite_lits,
+           argMax(pole, _ingestion_date)          AS pole
+    FROM bronze.description_service GROUP BY service_code
+) AS d ON d.service_code = s.service_code;
+
+INSERT INTO silver.dim_ccam (code_ccam, libelle, tarif_euros, _batch_id)
+SELECT code_ccam,
+       argMax(libelle, _ingestion_date),
+       argMax(tarif_euros, _ingestion_date),
+       {b:String}
+FROM bronze.ccam GROUP BY code_ccam;
 
 INSERT INTO silver.dim_cim10 (code_cim10, libelle, _batch_id)
 SELECT code_cim10, argMax(libelle, _ingestion_date), {b:String}
@@ -414,6 +485,25 @@ WHERE m.heart_rate IS NOT NULL AND m.spo2 IS NOT NULL AND m.temp_c IS NOT NULL
   AND m.spo2       BETWEEN {spo2_min:Int32} AND {spo2_max:Int32}
   AND m.temp_c     BETWEEN {temp_min:Float32} AND {temp_max:Float32};
 
+-- ─── fait_acte ──────────────────────────────────────────────────────────────
+-- Rattaché à sejour_recevable comme les diagnostics et les relevés : un acte
+-- réalisé reste réalisé quand la date de sortie du séjour est fautive.
+
+INSERT INTO ops.rejects (run_id, table_source, cle, regle, valeur)
+SELECT {b:String}, 'fait_acte', concat(stay_id, '/', code_ccam),
+       if(stay_id NOT IN (SELECT stay_id FROM silver.sejour_recevable),
+          'sejour_inconnu', 'code_ccam_inconnu'),
+       code_ccam
+FROM bronze.actes
+WHERE stay_id   NOT IN (SELECT stay_id FROM silver.sejour_recevable)
+   OR code_ccam NOT IN (SELECT code_ccam FROM silver.dim_ccam);
+
+INSERT INTO silver.fait_acte (stay_id, service_code, code_ccam, acte_ts, _batch_id)
+SELECT a.stay_id, s.service_code, a.code_ccam, a.acte_ts, {b:String}
+FROM bronze.actes AS a
+INNER JOIN silver.sejour_recevable AS s ON s.stay_id = a.stay_id
+WHERE a.code_ccam IN (SELECT code_ccam FROM silver.dim_ccam);
+
 -- ─── Bilan qualité ──────────────────────────────────────────────────────────
 -- Une ligne par règle : combien de lignes examinées, combien écartées.
 
@@ -499,3 +589,18 @@ INSERT INTO ops.data_quality
 SELECT {b:String}, 'fait_monitoring', 'releve_sans_sejour_retenu', 'SIGNALEMENT',
        count(), countIf(stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour))
 FROM silver.fait_monitoring;
+
+-- Même contrepartie pour les actes.
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'fait_acte', 'acte_sans_sejour_retenu', 'SIGNALEMENT',
+       count(), countIf(stay_id NOT IN (SELECT stay_id FROM silver.fait_sejour))
+FROM silver.fait_acte;
+
+-- Services non décrits par le référentiel de description : ils restent dans la
+-- dimension, avec la catégorie « non décrit », et sont comptés ici.
+INSERT INTO ops.data_quality
+    (run_id, table_cible, regle, traitement, lignes_entree, lignes_concernees)
+SELECT {b:String}, 'dim_service', 'service_sans_description', 'SIGNALEMENT',
+       count(), countIf(est_decrit = 0)
+FROM silver.dim_service;

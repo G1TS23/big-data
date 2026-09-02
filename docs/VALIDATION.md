@@ -14,12 +14,12 @@ deux fois.
 - [3. Ce que chaque écart recouvre](#3-ce-que-chaque-écart-recouvre)
 - [4. Anomalies conservées et signalées](#4-anomalies-conservées-et-signalées)
 - [5. Le seuil de diffusion, éprouvé](#5-le-seuil-de-diffusion-éprouvé)
-- [6. Recalcul des sept indicateurs de synthèse](#6-recalcul-des-sept-indicateurs-de-synthèse)
-- [7. Confrontation au corrigé du commanditaire](#7-confrontation-au-corrigé-du-commanditaire)
-- [8. Recalcul détaillé sur trois séjours](#8-recalcul-détaillé-sur-trois-séjours)
-- [9. Ce que le recalcul a corrigé](#9-ce-que-le-recalcul-a-corrigé)
-- [10. Test de rejeu](#10-test-de-rejeu)
-- [11. Ce que cette validation ne couvre pas](#11-ce-que-cette-validation-ne-couvre-pas)
+- [6. Recalcul des sept indicateurs de synthèse](#7-recalcul-des-sept-indicateurs-de-synthèse)
+- [7. Confrontation au corrigé du commanditaire](#8-confrontation-au-corrigé-du-commanditaire)
+- [8. Recalcul détaillé sur trois séjours](#9-recalcul-détaillé-sur-trois-séjours)
+- [9. Ce que le recalcul a corrigé](#10-ce-que-le-recalcul-a-corrigé)
+- [10. Test de rejeu](#11-test-de-rejeu)
+- [11. Ce que cette validation ne couvre pas](#12-ce-que-cette-validation-ne-couvre-pas)
 
 ---
 
@@ -36,8 +36,10 @@ sans erreur visible.
 | `monitoring` | 28 | 2026-08-01 → 08-28 | 41 778 relevés |
 | `patients` | 3 | 2026-08-26 → 08-28 | 3 × 6 000 = 18 000 lignes |
 | `referentiels` | 1 | 2026-08-01 | 8 services, 13 codes CIM-10 |
+| `actes` | 1 | 2026-08-29 | 8 112 actes médicaux |
+| `referentiels` (évolution) | 1 | 2026-08-29 | 7 services décrits, 8 actes CCAM |
 
-89 fichiers, 3,2 Mo, versionnés dans `source-filestorage/`. Les séjours,
+92 fichiers, 3,3 Mo, versionnés dans `source-filestorage/`. Les séjours,
 diagnostics et relevés sont **incrémentaux** : 6 797 identifiants de séjour pour
 6 797 lignes, aucun ne revient d'un jour sur l'autre. Les patients sont livrés
 en **instantanés complets**, les mêmes 6 000 patients trois fois.
@@ -76,8 +78,14 @@ python docs/outils/reconcilier.py
 | sejours | 6 797 | 6 797 | 6 729 | 68 | 0 | ✓ |
 | diagnostics | 12 720 | 12 720 | 12 720 | 0 | 0 | ✓ |
 | monitoring | 41 778 | 41 778 | 40 920 | 858 | 0 | ✓ |
+| actes | 8 112 | 8 112 | 8 112 | 0 | 0 | ✓ |
 | services | 8 | 8 | 8 | 0 | 0 | ✓ |
 | cim10 | 13 | 13 | 13 | 0 | 0 | ✓ |
+| ccam | 8 | 8 | 8 | 0 | 0 | ✓ |
+| description_service | 7 | 7 | 7 | 0 | 0 | ✓ |
+
+`description_service` n'a pas de table à elle : elle enrichit `dim_service`. Son
+« silver » est donc le nombre de services effectivement décrits — 7 sur 8.
 
 **Bronze reproduit la source ligne pour ligne**, sur les six tables. C'est
 l'engagement de la couche : elle recopie sans juger. La ligne `diagnostics`
@@ -171,6 +179,8 @@ voir.
 | `sejours_chevauchants` | **0** | 6 729 | 0 % |
 | `diagnostic_sans_sejour_retenu` | 127 | 12 720 | 1,0 % |
 | `releve_sans_sejour_retenu` | 520 | 40 920 | 1,3 % |
+| `acte_sans_sejour_retenu` | 82 | 8 112 | 1,0 % |
+| `service_sans_description` | 1 | 8 | 12,5 % |
 | `mode_sortie_manquant` | **0** | 6 046 clos | 0 % |
 
 Les deux derniers valent zéro sur ce jeu, et **les contrôles restent en place**.
@@ -236,7 +246,94 @@ directement les tables silver — `eds acces` le vérifie.
 
 ---
 
-## 6. Recalcul des sept indicateurs de synthèse
+## 6. L'évolution : catégories de service et actes
+
+Le CHU a livré, le 2026-08-29, une description plus fine des services et un
+nouveau flux d'actes médicaux. Le socle n'a pas bougé : **seuls 3 fichiers sur
+92 ont été copiés dans le lake**, les 89 autres reconnus sur leur date. La
+découverte teste l'existence de chaque fichier et ignore les dates où il manque,
+si bien qu'un référentiel qui arrive en cours de route ne demande aucune
+configuration particulière.
+
+Le sujet signale deux pièges. Aucun des deux ne lève d'erreur quand on tombe
+dedans — ils produisent seulement des chiffres faux, ce qui est pire.
+
+### Piège 1 — le référentiel de description est incomplet
+
+Il décrit **7 services sur 8** : `NEURO` n'y figure pas. Ce n'est pas un détail,
+c'est le deuxième service en volume — 1 208 séjours, 1 471 actes, 393 850 € de
+facturation.
+
+Un `INNER JOIN` l'aurait fait disparaître de tous les indicateurs par catégorie
+et par pôle, **sans un mot** : les totaux seraient restés cohérents entre eux, et
+faux. Le choix retenu :
+
+- **`LEFT JOIN`**, le service reste dans la dimension ;
+- sa catégorie et son pôle valent explicitement `non décrit`, visibles sur les
+  graphiques plutôt qu'escamotés ;
+- un témoin `est_decrit` évite d'éparpiller des tests sur chaîne vide ;
+- **`capacite_lits` reste `NULL`, jamais 0.** Un service non décrit n'a pas zéro
+  lit, il a un nombre de lits inconnu. Écrire 0 produirait une division par zéro
+  dans la densité d'actes par lit — un infini, ou pire, un chiffre plausible.
+
+La densité par lit est donc **incalculable pour NEURO**, et la carte l'écarte
+plutôt que de l'afficher à zéro, ce qui le ferait passer pour inactif. La
+capacité d'une catégorie n'est de même renseignée que si **tous** ses services le
+sont : une somme partielle se laisserait comparer aux autres sans dire qu'elle
+est sous-estimée.
+
+Le contrôle `service_sans_description` compte ces services à chaque exécution.
+
+### Piège 2 — le service est porté par le séjour, pas par l'acte
+
+`actes.parquet` ne contient que `stay_id`, `code_ccam` et `acte_ts`. Pour compter
+les actes par service, il faut donc remonter au séjour — sans relier deux tables
+de faits.
+
+Joindre `fait_acte` à `fait_sejour` multiplierait chaque séjour par son nombre
+d'actes : le compte des séjours vaudrait 8 112 au lieu de 6 729, et **aucune
+erreur ne se lèverait**. La solution est celle que le projet applique déjà à
+`fait_monitoring` : `service_code` est **dénormalisé sur `fait_acte`** à la
+construction, depuis `sejour_recevable`. Les indicateurs ne joignent ensuite que
+`fait_acte` et `dim_service` — un fait et une dimension.
+
+Quand deux comptes doivent se rencontrer — actes par séjour — ils sont agrégés
+**séparément** puis rapprochés sur `service_code`, une clé de dimension et non
+une ligne de fait. Un test le garde : la somme des séjours de
+`kpi_actes_service` doit valoir exactement `count()` sur `fait_sejour`.
+
+### Les cinq indicateurs
+
+Trois d'entre eux — actes par service, densité par lit, montant facturé —
+partagent le **même grain**. Ils tiennent donc dans une seule table,
+`kpi_actes_service`, plutôt que dans trois presque identiques : le grain définit
+la table, et le multiplier sans raison multiplierait les occasions de les voir
+diverger.
+
+| service | actes | lits | actes/lit | actes/séjour | T2A |
+|---|---:|---:|---:|---:|---:|
+| CARDIO | 1 935 | 30 | 64,5 | 1,21 | 521 655 € |
+| URGENCES | 1 731 | 20 | 86,6 | 1,22 | 478 585 € |
+| **NEURO** | 1 471 | *—* | *—* | 1,22 | 393 850 € |
+| PNEUMO | 1 009 | 28 | 36,0 | 1,20 | 268 045 € |
+| PEDIA | 598 | 22 | 27,2 | 1,19 | 171 165 € |
+| CHIR | 564 | 40 | 14,1 | 1,18 | 147 145 € |
+| REA | 563 | 16 | 35,2 | 1,21 | 154 740 € |
+| ONCO | 241 | 35 | 6,9 | 1,14 | 64 265 € |
+
+Les totaux se recoupent à trois endroits : 8 112 actes et 2 199 450 € se
+retrouvent aussi bien par service que par type d'acte, et les 6 729 séjours
+aussi bien par service que par catégorie.
+
+### Non-régression
+
+Le sujet l'exige, et un test le vérifie : les sept indicateurs de synthèse sont
+**inchangés** après l'évolution — 6 729 séjours, 5 949 patients, DMS 5,15 j,
+réadmission 12,89 %, 3 314 relevés en alerte.
+
+---
+
+## 7. Recalcul des sept indicateurs de synthèse
 
 Chaque valeur de `gold_pilotage.kpi_synthese` a été recalculée depuis les
 fichiers bruts, en réimplémentant la définition métier à la main.
@@ -276,7 +373,7 @@ sait toujours avec quels seuils un chiffre a été produit.
 
 ---
 
-## 7. Confrontation au corrigé du commanditaire
+## 8. Confrontation au corrigé du commanditaire
 
 Le commanditaire a fourni une feuille de réponses attendues, calculée sur le même
 jeu de données. C'est une troisième mesure, indépendante de nos deux premières.
@@ -333,7 +430,7 @@ nôtre sans lire une ligne de SQL — 392 + 133 + 255 = 780.
 
 ---
 
-## 8. Recalcul détaillé sur trois séjours
+## 9. Recalcul détaillé sur trois séjours
 
 Trois séjours contrastés, suivis à la main de bout en bout. Toutes les valeurs
 d'entrée se lisent directement dans `source-filestorage/`.
@@ -398,7 +495,7 @@ d'entrée se lisent directement dans `source-filestorage/`.
 
 ---
 
-## 9. Ce que le recalcul a corrigé
+## 10. Ce que le recalcul a corrigé
 
 Le premier recalcul manuel **ne tombait pas juste** : il trouvait 15 séjours
 rejetés au lieu de 68.
@@ -417,7 +514,7 @@ incohérent, que ce soit de deux heures ou de deux jours.
 
 ---
 
-## 10. Test de rejeu
+## 11. Test de rejeu
 
 Le pipeline doit pouvoir être relancé sans que les chiffres bougent. Deux
 `eds run` consécutifs, avec relevé des indicateurs avant, entre et après :
@@ -447,7 +544,7 @@ déboguer.
 
 ---
 
-## 11. Ce que cette validation ne couvre pas
+## 12. Ce que cette validation ne couvre pas
 
 Elle établit que **le pipeline calcule fidèlement ce qu'on lui a demandé de
 calculer**. Elle n'établit pas que les définitions métier retenues sont les

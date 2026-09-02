@@ -94,6 +94,36 @@ tableaux:
          axe_x: "Service", axe_y: "Séjours",
          row: 20, col: 12, size_x: 12, size_y: 8}
 
+      # ─── Évolution : catégories de service et actes médicaux ───────────────
+      - {texte: "**Actes médicaux et catégories de service.** La catégorie regroupe plusieurs services, le pôle plusieurs catégories : trois niveaux de lecture pour la même activité. La catégorie « non décrit » n'est pas un défaut d'affichage — le référentiel de description ne couvre pas tous les services, et l'activité du service manquant est montrée plutôt qu'escamotée. Sa capacité en lits étant inconnue, il n'apparaît pas dans la densité par lit.",
+         row: 28, col: 0, size_x: 24, size_y: 3}
+
+      - {sql: pilot_sejours_categorie.sql, titre: "Séjours par catégorie de service", forme: row,
+         description: "La catégorie regroupe plusieurs services ; « non décrit » désigne un service absent du référentiel de description.",
+         serie: "Séjours", couleur: serie_1, valeurs: true,
+         row: 31, col: 0, size_x: 12, size_y: 8}
+      - {sql: pilot_dms_categorie.sql, titre: "Durée moyenne de séjour par catégorie", forme: row,
+         description: "Séjours clos uniquement — un séjour en cours a une durée tronquée.",
+         serie: "DMS (jours)", couleur: serie_2, valeurs: true,
+         row: 31, col: 12, size_x: 12, size_y: 8}
+
+      - {sql: pilot_actes_service.sql, titre: "Actes réalisés par service", forme: row,
+         description: "Le service est celui du séjour, l'acte n'en porte pas.",
+         serie: "Actes", couleur: serie_3, valeurs: true,
+         row: 39, col: 0, size_x: 12, size_y: 8}
+      - {sql: pilot_actes_type.sql, titre: "Actes réalisés par type d'acte", forme: row,
+         serie: "Actes", couleur: serie_4, valeurs: true,
+         row: 39, col: 12, size_x: 12, size_y: 8}
+
+      - {sql: pilot_densite_actes_lit.sql, titre: "Densité d'actes par lit", forme: row,
+         description: "Intensité du plateau technique. Les services dont la capacité est inconnue sont écartés : une densité ne se calcule pas sans lits.",
+         serie: "Actes par lit", couleur: serie_1, valeurs: true,
+         row: 47, col: 0, size_x: 12, size_y: 8}
+      - {sql: pilot_t2a_service.sql, titre: "Montant facturé par service (T2A)", forme: row,
+         description: "Somme des tarifs CCAM des actes réalisés.",
+         serie: "Montant facturé (€)", couleur: serie_2, valeurs: true,
+         row: 47, col: 12, size_x: 12, size_y: 8}
+
   # ─── Recherche clinique ───────────────────────────────────────────────────
   - nom: "Recherche clinique"
     description: "Cohortes par pathologie, par âge et par sexe. Aucune donnée identifiante."

@@ -73,6 +73,17 @@ sources:
       # seconde, précision suffisante pour des constantes relevées à la minute.
       cast: {ts: "toDateTime(ts)"}
 
+  actes:
+    format: parquet
+    path: "actes/{date}/actes.parquet"
+    mode: incremental
+    # Rattaché au séjour, jamais au patient : copie brute, comme le monitoring.
+    bronze:
+      table: bronze.actes
+      format: Parquet
+      schema: "stay_id String, code_ccam String, acte_ts DateTime64(3)"
+      cast: {acte_ts: "toDateTime(acte_ts)"}
+
   referentiels:
     format: csv
     mode: full
@@ -89,3 +100,19 @@ sources:
           table: bronze.cim10
           format: CSVWithNames
           schema: "code_cim10 String, libelle String"
+
+      # Déposés le 2026-08-29 seulement. La découverte teste l'existence de
+      # chaque fichier et ignore les dates où il manque : un référentiel qui
+      # arrive en cours de route n'exige aucune configuration particulière.
+      - path: "referentiels/{date}/description_service.csv"
+        source_columns: [service_code, categorie, capacite_lits, pole]
+        bronze:
+          table: bronze.description_service
+          format: CSVWithNames
+          schema: "service_code String, categorie String, capacite_lits Nullable(UInt16), pole String"
+      - path: "referentiels/{date}/ccam.csv"
+        source_columns: [code_ccam, libelle, tarif_euros]
+        bronze:
+          table: bronze.ccam
+          format: CSVWithNames
+          schema: "code_ccam String, libelle String, tarif_euros Nullable(UInt32)"
