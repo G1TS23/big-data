@@ -24,3 +24,23 @@ resource "azurerm_subnet" "noeuds" {
   virtual_network_name = azurerm_virtual_network.eds.name
   address_prefixes     = ["10.42.0.0/22"]
 }
+
+# Sous-réseau DÉLÉGUÉ à PostgreSQL. Une base managée en accès privé ne
+# s'attache pas à un sous-réseau ordinaire : Azure exige de lui en déléguer un
+# entier, qu'aucune autre ressource ne peut alors partager.
+resource "azurerm_subnet" "base" {
+  name                 = "snet-base"
+  resource_group_name  = azurerm_resource_group.eds.name
+  virtual_network_name = azurerm_virtual_network.eds.name
+  address_prefixes     = ["10.42.4.0/24"]
+
+  delegation {
+    name = "postgresql"
+    service_delegation {
+      name = "Microsoft.DBforPostgreSQL/flexibleServers"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/join/action",
+      ]
+    }
+  }
+}

@@ -59,7 +59,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: eds-secrets
-                  key: clickhouse-admin-password
+                  key: CLICKHOUSE_ADMIN_PASSWORD
             - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
               value: "1"
           # Le même contrôle qu'en local : docker-compose interrogeait déjà

@@ -7,3 +7,22 @@ metadata:
   labels:
     donnees: sante
     gere-par: terraform
+---
+# Ce qui est PARAMÈTRE et non secret. La distinction n'est pas cosmétique :
+# les quatre pods « eds » reçoivent ce ConfigMap en entier par envFrom, et il
+# doit donc ne rien contenir qu'un journal d'audit ne puisse afficher.
+#
+# Les clés portent le nom exact de la variable d'environnement. C'est une
+# contrainte, pas un style : envFrom transforme chaque clé en variable, et
+# Kubernetes IGNORE SILENCIEUSEMENT toute clé qui n'est pas un identifiant
+# valide. Une clé nommée « clickhouse-admin-user » ne provoquerait aucune
+# erreur — elle n'arriverait simplement jamais dans le conteneur.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: eds-config
+  namespace: eds
+data:
+  CLICKHOUSE_ADMIN_USER: eds_admin
+  METABASE_ADMIN_EMAIL: admin@exemple.fr
+  EDS_K_ANONYMITE: "5"

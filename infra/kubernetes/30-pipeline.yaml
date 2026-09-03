@@ -36,11 +36,18 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
+            # Sans fsGroup, un disque managé est monté root:root en 0755 et le
+            # conteneur, qui ne tourne PAS en root, ne peut rien y écrire. La
+            # panne est silencieuse au montage et n'apparaît qu'à la première
+            # écriture — ici, sur les 92 dépôts d'un coup.
+            fsGroup: 10001
           containers:
             - name: eds
               image: credschurecette.azurecr.io/eds:1.0.0
               args: ["eds", "run"]
               envFrom:
+                - configMapRef:
+                    name: eds-config
                 - secretRef:
                     name: eds-secrets
               env:

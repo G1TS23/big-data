@@ -26,13 +26,36 @@ variable "environnement" {
 }
 
 variable "region" {
-  description = "Région d'hébergement. Une donnée de santé ne quitte pas le territoire."
+  description = <<-TEXTE
+    Région d'hébergement.
+
+    En production, une donnée de santé française reste en France : la
+    certification HDS de Microsoft (art. L1111-8 CSP) ne couvre que France
+    Central et France South. La seconde validation ci-dessous l'impose.
+
+    Hors production, la liste s'ouvre à l'Espace économique européen. Le RGPD
+    reste respecté — aucun transfert hors EEE — mais la certification HDS,
+    elle, est perdue. L'écart est acceptable sur des données fictives ; il ne
+    le serait pas sur des données de patients.
+  TEXTE
   type        = string
   default     = "francecentral"
 
   validation {
-    condition     = contains(["francecentral", "francesouth"], var.region)
-    error_message = "Les données de santé restent en France : francecentral ou francesouth."
+    # uaenorth, que la souscription étudiante autorise pourtant, est
+    # délibérément absente de cette liste : elle est hors EEE.
+    condition = contains([
+      "francecentral", "francesouth",
+      "northeurope", "westeurope",
+      "germanywestcentral", "swedencentral", "polandcentral", "spaincentral",
+      "italynorth", "norwayeast",
+    ], var.region)
+    error_message = "Région hors Espace économique européen : le RGPD interdit d'y transférer ces données."
+  }
+
+  validation {
+    condition     = var.environnement != "production" || contains(["francecentral", "francesouth"], var.region)
+    error_message = "En production, les données de santé restent en France : francecentral ou francesouth, seul périmètre de la certification HDS."
   }
 }
 

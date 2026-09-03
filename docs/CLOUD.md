@@ -29,8 +29,12 @@ des offres, et qui doit donc être tranchée **avant** tout choix technique.
 Trois conséquences en découlent, et elles se lisent directement dans `infra/` :
 
 **La région est contrainte.** Une variable ne suffit pas, il faut une garantie :
-`variables.tf` refuse toute région hors de France par une règle de validation.
-Un déploiement mal paramétré échoue au lieu de sortir les données du territoire.
+`variables.tf` porte deux règles de validation. La première refuse toute région
+hors de l'Espace économique européen — le RGPD interdit le transfert. La seconde
+resserre l'étau dès que `environnement` vaut `production` : seules
+`francecentral` et `francesouth` sont alors acceptées, parce que la certification
+HDS de Microsoft ne couvre que ces deux régions. Un déploiement de production mal
+paramétré échoue au lieu de sortir les données du territoire.
 
 **La certification porte sur des services, pas sur un fournisseur.** Un
 hébergeur certifié ne l'est pas pour l'intégralité de son catalogue. Le périmètre
@@ -42,6 +46,53 @@ managés qui portent l'entrepôt, au partage où le CHU dépose, et à la base
 applicative de Metabase — y compris à celle-ci, qui ne contient pourtant aucune
 donnée de santé : la liste des comptes qui accèdent à un entrepôt mérite la même
 protection que l'entrepôt.
+
+### Ce que la démonstration ne peut pas tenir : la région
+
+Ce garde-fou a immédiatement produit son effet, et pas celui qu'on attendait :
+**il nous a interdit de déployer**.
+
+La souscription « Azure for Students » qui porte la démonstration applique une
+politique `sys.regionrestriction` — « Allowed resource deployment regions » — qui
+n'autorise que cinq régions : `germanywestcentral`, `spaincentral`,
+`polandcentral`, `uaenorth` et `swedencentral`. **Aucune région française.**
+Toute création en France est refusée par Azure lui-même :
+
+```
+Error: creating Flexible Server: unexpected status 403 (403 Forbidden)
+RequestDisallowedByAzure: Resource 'psql-edschu-recette' was disallowed by Azure:
+This policy maintains a set of best available regions where your subscription
+can deploy resources.
+```
+
+Des cinq régions permises, une seule était utilisable :
+
+| Région | Verdict |
+| --- | --- |
+| `uaenorth` | Hors EEE. Écartée sans discussion. |
+| `spaincentral` | Tous les gabarits en `NotAvailableForSubscription`. |
+| `germanywestcentral` | Aucun gabarit de la famille B. |
+| `polandcentral` | Non retenue, plus éloignée à service égal. |
+| `swedencentral` | `Standard_B2s_v2` disponible, 6 vCPU de quota. **Retenue.** |
+
+La démonstration se déploie donc à **Stockholm**, et l'écart tient en une ligne,
+dans `infra/terraform/terraform.tfvars`, entourée du raisonnement ci-dessus.
+
+Il faut être précis sur ce qui est perdu et ce qui ne l'est pas. Stockholm est
+dans l'EEE : **aucun transfert hors Union**, le RGPD reste tenu. Ce qui tombe,
+c'est la **certification HDS**, dont le périmètre se limite aux deux régions
+françaises. Sur les données fictives du sujet, l'écart est sans conséquence. Sur
+de vraies données de patients, il serait rédhibitoire — et c'est exactement ce
+que la seconde validation refuse dès que l'environnement passe en production.
+
+Cela mérite d'être dit franchement, parce que c'est la leçon la plus utile de ce
+chapitre : **la contrainte réglementaire s'est révélée plus difficile à satisfaire
+que la contrainte technique.** Monter un cluster Kubernetes ne pose pas de
+problème ; le monter au bon endroit, si. Un CHU qui contractualiserait pour de
+vrai rencontrerait la même difficulté sous une autre forme — non pas une
+politique de souscription étudiante, mais la disponibilité réelle des services
+certifiés dans le périmètre HDS de son hébergeur, service par service. La
+démonstration bute sur une version miniature du problème réel.
 
 ## 2. L'architecture cible
 
@@ -300,6 +351,58 @@ aucun disque portant des données de santé.
 > démonstration portant des données de santé se détruit après usage ; c'est ce
 > qu'on ferait pour un vrai CHU, et c'est ce que nous recommandons.
 
+### Ce que le déploiement a révélé, et que rien d'autre n'aurait trouvé
+
+Les niveaux 1 et 2 déclaraient l'infrastructure valide. Elle l'était, au sens où
+Terraform et kubeconform l'entendent. Le déploiement réel a pourtant mis au jour
+**cinq défauts**, tous invisibles avant lui. Ils méritent d'être listés, parce
+qu'ils délimitent exactement ce qu'une validation hors ligne peut promettre.
+
+**1. Une clé de secret qui n'était pas un identifiant.** Le secret `eds-secrets`
+était lu de deux façons incompatibles : par `envFrom`, qui transforme chaque clé
+en variable d'environnement, et par `secretKeyRef`, qui accepte n'importe quel
+nom. Les clés étaient nommées `clickhouse-admin-password` — parfait pour le
+second usage, invalide pour le premier. **Kubernetes n'émet aucune erreur** : il
+ignore silencieusement les clés qui ne sont pas des identifiants. Le pipeline
+aurait démarré sans un seul secret. Les clés portent désormais le nom exact des
+variables, et ce qui n'est pas secret est passé dans un `ConfigMap` distinct.
+
+**2. Un `fsGroup` manquant.** Le pipeline tourne en `uid 10001`, et un disque
+managé se monte `root:root` en `0755`. Les 92 dépôts ont échoué d'un coup, à la
+première écriture. Le `StatefulSet` de ClickHouse portait bien un `fsGroup` ; le
+pipeline l'avait oublié. Aucun schéma d'API ne peut détecter cela — le manifeste
+était parfaitement valide.
+
+**3. Une base managée publique et injoignable.** Le serveur PostgreSQL était
+créé en accès public sans aucune règle de pare-feu : joignable par personne, et
+exposé en principe. Deux défauts contradictoires dans la même ligne. La base est
+passée en accès privé — sous-réseau délégué et zone DNS privée — ce qui n'est pas
+un durcissement cosmétique : cette base porte **la liste des comptes qui accèdent
+à l'entrepôt**, et sa publication contredisait l'argument de tout le reste. Azure
+a d'ailleurs refusé la configuration intermédiaire, exigeant que l'accès public
+soit explicitement désactivé plutôt que déduit.
+
+**4. Une extension non autorisée.** Metabase pose l'extension `citext` au premier
+démarrage. Azure n'autorise aucune extension par défaut. C'est une différence
+entre un PostgreSQL managé et un PostgreSQL en conteneur que **le développement
+local ne peut pas révéler**, par construction.
+
+**5. Une dépendance circulaire entre les trois installations.** `eds metabase` a
+besoin des comptes ClickHouse que crée `eds acces` ; la vérification du
+cloisonnement Metabase par `eds acces` a besoin des comptes que crée
+`eds metabase`. À la première installation, `eds acces` signale honnêtement
+`cloisonnement Metabase non vérifié` et le second passage donne les 41 contrôles.
+Ce n'est pas un défaut de code — la commande dégrade proprement — mais une
+propriété de la séquence, qu'il faut connaître : **l'installation demande deux
+passages de `eds acces`**, jamais un seul.
+
+La leçon tient en une phrase : **une infrastructure validée n'est pas une
+infrastructure éprouvée.** Les trois premiers défauts partagent un trait commun —
+ils ne produisent pas d'erreur au déploiement, mais un silence, un délai
+d'attente ou un refus de permission au premier usage réel. C'est précisément la
+catégorie de panne qu'un `terraform validate` ne verra jamais, et c'est pourquoi
+le niveau 3 n'est pas une formalité de fin de parcours.
+
 ## 7. Le plan de migration
 
 Chaque étape est **réversible** et laisse l'installation locale intacte.
@@ -308,14 +411,15 @@ Chaque étape est **réversible** et laisse l'installation locale intacte.
 |---|---|---|
 | 1 | Contracter chez un hébergeur certifié HDS, vérifier le périmètre par service | contrat |
 | 2 | `terraform apply` — réseau, zone de dépôt, secrets, cluster, registre | `terraform plan` vide ensuite |
-| 3 | Déposer les secrets dans le gestionnaire, hors de Terraform | lecture depuis un pod |
+| 3 | `infra/deposer-secrets.sh` — tirer les secrets et remplir le coffre | 9 secrets dans le coffre |
 | 4 | Construire et pousser l'image en `linux/amd64` | `docker pull` depuis le cluster |
-| 5 | Appliquer les manifestes, dans l'ordre | `kubectl get pods` |
-| 6 | `eds init`, `eds acces`, `eds metabase` | 41 contrôles de cloisonnement |
-| 7 | Charger un premier dépôt, comparer les indicateurs au local | les sept KPI identiques |
-| 8 | Activer le `CronJob` | une exécution nocturne journalisée |
+| 5 | `infra/secrets-kubernetes.sh` — porter les secrets du coffre au cluster | 3 secrets dans l'espace de noms |
+| 6 | Appliquer les manifestes, dans l'ordre | `kubectl get pods` |
+| 7 | `eds init`, `eds acces`, `eds metabase`, **puis `eds acces` à nouveau** | 41 contrôles de cloisonnement |
+| 8 | Charger un premier dépôt, comparer les indicateurs au local | les sept KPI identiques |
+| 9 | Activer le `CronJob` | une exécution nocturne journalisée |
 
-**L'étape 7 est celle qui compte.** Le pipeline étant déterministe et
+**L'étape 8 est celle qui compte.** Le pipeline étant déterministe et
 reconstruisant silver et gold à chaque passage, les mêmes fichiers doivent
 produire exactement les mêmes chiffres — 6 729 séjours, DMS 5,15 j, 3 314
 relevés en alerte. Un écart signalerait une différence d'environnement, pas une
@@ -328,7 +432,7 @@ montants qui seraient périmés à la lecture.
 
 | poste | ce qui le détermine | ordre |
 |---|---|---|
-| Nœuds Kubernetes | 3 nœuds en permanence | **dominant** |
+| Nœuds Kubernetes | 2 nœuds en permanence | **dominant** |
 | Base managée | un nœud, doublé en production | notable |
 | Stockage | disque du lake et partage de dépôt — 3,3 Mo aujourd'hui | négligeable |
 | Gestionnaire de secrets | quelques secrets | négligeable |

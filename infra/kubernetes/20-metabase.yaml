@@ -48,8 +48,8 @@ spec:
             - name: MB_DB_HOST
               valueFrom:
                 secretKeyRef:
-                  name: eds-secrets
-                  key: metabase-db-host
+                  name: metabase-db
+                  key: METABASE_DB_HOST
             - name: MB_DB_PORT
               value: "5432"
             - name: MB_DB_USER
@@ -57,8 +57,8 @@ spec:
             - name: MB_DB_PASS
               valueFrom:
                 secretKeyRef:
-                  name: eds-secrets
-                  key: metabase-db-password
+                  name: metabase-db
+                  key: METABASE_DB_PASSWORD
           readinessProbe:
             httpGet:
               path: /api/health
