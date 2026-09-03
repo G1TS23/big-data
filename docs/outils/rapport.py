@@ -235,6 +235,10 @@ def main() -> int:
     destination = Path(sys.argv[1]) if len(sys.argv) > 1 \
         else RACINE.parent / "rendu" / "rapport-eds-chu.pdf"
     destination.parent.mkdir(parents=True, exist_ok=True)
+    # resolve() APRÈS la création : Chrome reçoit un file:// et un chemin
+    # relatif ne s'y exprime pas. La destination peut être donnée en relatif
+    # depuis le Makefile, d'où la normalisation ici plutôt qu'à l'appel.
+    destination = destination.resolve()
 
     page = destination.with_suffix(".html")
     page.write_text(incorporer_images(construire_html()), encoding="utf-8", newline="")

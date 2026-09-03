@@ -45,16 +45,22 @@ capture:
 # ─── Les deux livrables ──────────────────────────────────────────────────────
 # Le rendu attend le dépôt ET un rapport lisible sans lui. Les deux sortent
 # dans ../rendu/, hors du dépôt : un livrable ne se versionne pas lui-même.
+# RENDU choisit la destination. Le défaut ../rendu/ porte le livrable SÛR,
+# celui de la branche main ; la branche cloud écrit ailleurs, faute de quoi un
+# travail non abouti écraserait ce qu'on est certain de pouvoir rendre :
+#   make livrables RENDU=../rendu-cloud
+RENDU ?= ../rendu
+
 rapport:
-	python3 docs/outils/rapport.py
+	python3 docs/outils/rapport.py $(RENDU)/rapport-eds-chu.pdf
 
 # git archive, et non zip : seul ce qui est VERSIONNÉ part: ni .venv, ni lake,
 # ni logs, ni .env — les mêmes fichiers que ce qu'un correcteur obtient en
 # clonant, ce qui rend l'archive et le dépôt indiscernables.
 livrables: rapport
-	mkdir -p ../rendu
-	git archive --format=zip --prefix=eds-chu/ -o ../rendu/eds-chu-depot.zip HEAD
-	@ls -lh ../rendu/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'
+	mkdir -p $(RENDU)
+	git archive --format=zip --prefix=eds-chu/ -o $(RENDU)/eds-chu-depot.zip HEAD
+	@ls -lh $(RENDU)/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'
 
 # ─── Vérification de l'infrastructure ────────────────────────────────────────
 # Sans compte cloud, et sans rien installer : Terraform valide la configuration
