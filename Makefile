@@ -1,6 +1,6 @@
 # Raccourcis d'exploitation. Les commandes restent utilisables telles quelles
 # sans make ; voir docs/EXPLOITATION.md.
-.PHONY: aide env socle pipeline tests verrou capture rapport livrables
+.PHONY: aide env socle pipeline tests verrou capture rapport livrables infra
 
 aide:
 	@echo "env       écrit .env, sel et mots de passe tirés au sort"
@@ -11,6 +11,7 @@ aide:
 	@echo "capture   régénère l'image de la démonstration du cloisonnement"
 	@echo "rapport   assemble les documents en un PDF, hors du dépôt"
 	@echo "livrables rapport PDF + archive du dépôt, dans ../rendu/"
+	@echo "infra     vérifie l'infrastructure : terraform + manifestes k8s"
 
 # N'écrase jamais un .env existant : les secrets en place sont irremplaçables
 # (changer EDS_SALT casse la continuité des pseudonymes).
@@ -54,3 +55,22 @@ livrables: rapport
 	mkdir -p ../rendu
 	git archive --format=zip --prefix=eds-chu/ -o ../rendu/eds-chu-depot.zip HEAD
 	@ls -lh ../rendu/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'
+
+# ─── Vérification de l'infrastructure ────────────────────────────────────────
+# Sans compte cloud, et sans rien installer : Terraform valide la configuration
+# contre le schéma RÉEL du fournisseur, kubeconform valide les manifestes contre
+# les schémas de l'API Kubernetes. C'est ce qui distingue une infrastructure
+# décrite d'un YAML seulement plausible.
+#
+# Ce que cela NE vérifie pas : les chaînes libres — noms de jeux de permissions,
+# gabarits de nœuds — qui n'existent que côté API. Seul un « terraform plan »
+# contre un compte les confronterait.
+infra:
+	@echo "── format"
+	terraform -chdir=infra/terraform fmt -check -recursive
+	@echo "── schéma du fournisseur"
+	terraform -chdir=infra/terraform init -backend=false -input=false >/dev/null
+	terraform -chdir=infra/terraform validate
+	@echo "── manifestes Kubernetes"
+	docker run --rm -v "$(PWD)/infra/kubernetes:/w" ghcr.io/yannh/kubeconform:latest \
+	  -summary -strict /w

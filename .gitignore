@@ -55,3 +55,16 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# ─── Infrastructure ──────────────────────────────────────────────────────────
+# Le fournisseur téléchargé pèse 57 Mo et se récupère par « terraform init ».
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+
+# L'ÉTAT EST UN SECRET : Terraform y écrit en clair tout ce qu'il connaît, dont
+# le mot de passe de la base managée. Il vit dans un stockage distant chiffré,
+# jamais dans git.
+*.tfstate
+*.tfstate.*
+*.tfplan
+TF_VAR_*

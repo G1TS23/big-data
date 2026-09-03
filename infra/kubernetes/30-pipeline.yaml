@@ -1,0 +1,103 @@
+# Le pipeline, en tâche planifiée.
+#
+# C'est la traduction directe du service « scheduler » de docker-compose, à une
+# différence près : APScheduler tenait la cadence dans un processus qui devait
+# rester vivant ; Kubernetes la tient lui-même. Le conteneur ne vit plus que le
+# temps d'une exécution, ce qui supprime la question du redémarrage.
+#
+# Les trois réglages du planificateur local ont leur équivalent :
+#   max_instances = 1     → concurrencyPolicy: Forbid
+#   coalesce = true       → startingDeadlineSeconds borne le rattrapage
+#   misfire_grace_time    → idem, une heure
+#
+# Le verrou de fichier reste en place à l'intérieur du conteneur : il garantit
+# qu'une exécution lancée à la main ne croise pas la planifiée.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eds-pipeline
+  namespace: eds
+spec:
+  schedule: "0 2 * * *"
+  timeZone: "Europe/Paris"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 30
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: eds-pipeline
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+          containers:
+            - name: eds
+              image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+              args: ["eds", "run"]
+              envFrom:
+                - secretRef:
+                    name: eds-secrets
+              env:
+                - name: CLICKHOUSE_HOST
+                  value: clickhouse.eds.svc.cluster.local
+                - name: CLICKHOUSE_PORT
+                  value: "8123"
+                - name: METABASE_URL
+                  value: http://metabase.eds.svc.cluster.local:3000
+                - name: EDS_SOURCE_PATH
+                  value: /filestorage
+                - name: EDS_LAKE_PATH
+                  value: /lake
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
+              volumeMounts:
+                - name: lake
+                  mountPath: /lake
+                - name: source
+                  mountPath: /filestorage
+                  readOnly: true
+          volumes:
+            # Le lake reste un volume tant que eds/lake.py écrit avec
+            # shutil.copy2. Le bucket est provisionné et attend ce changement —
+            # voir docs/CLOUD.md, « ce qui reste à faire ».
+            - name: lake
+              persistentVolumeClaim:
+                claimName: eds-lake
+            # Le dépôt du CHU, monté en LECTURE SEULE comme en local : le
+            # conteneur ne peut pas altérer la source, même par erreur.
+            - name: source
+              persistentVolumeClaim:
+                claimName: eds-source
+                readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: eds-lake
+  namespace: eds
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: eds-source
+  namespace: eds
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi

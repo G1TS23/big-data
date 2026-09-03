@@ -1,0 +1,9 @@
+# Un espace de noms dédié : il porte les quotas, les politiques réseau et les
+# droits. Rien de l'entrepôt ne vit ailleurs.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: eds
+  labels:
+    donnees: sante
+    gere-par: terraform

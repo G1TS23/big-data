@@ -1,0 +1,73 @@
+# Metabase — la restitution.
+#
+# Deployment et non StatefulSet : contrairement à ClickHouse, Metabase ne
+# détient rien. Son état vit dans la base PostgreSQL managée, ce qui lui permet
+# d'être redéployé, déplacé ou multiplié sans précaution.
+apiVersion: v1
+kind: Service
+metadata:
+  name: metabase
+  namespace: eds
+spec:
+  selector:
+    app: metabase
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metabase
+  namespace: eds
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: metabase
+  template:
+    metadata:
+      labels:
+        app: metabase
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 2000
+      containers:
+        - name: metabase
+          image: metabase/metabase:v0.56.8
+          ports:
+            - name: http
+              containerPort: 3000
+          env:
+            - name: MB_DB_TYPE
+              value: postgres
+            - name: MB_DB_DBNAME
+              value: metabase
+            - name: MB_DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: eds-secrets
+                  key: metabase-db-host
+            - name: MB_DB_PORT
+              value: "5432"
+            - name: MB_DB_USER
+              value: metabase
+            - name: MB_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: eds-secrets
+                  key: metabase-db-password
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 300m
+              memory: 1Gi
+            limits:
+              memory: 3Gi

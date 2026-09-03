@@ -1,0 +1,86 @@
+# Les trois commandes d'installation, en tâches ponctuelles.
+#
+# Elles reproduisent l'ordre imposé en local et documenté dans le guide
+# d'exploitation : init, puis acces, puis metabase. « eds metabase » a besoin
+# des comptes que « eds acces » vient de créer.
+#
+# À lancer une fois, dans cet ordre :
+#   kubectl create job --from=cronjob/eds-pipeline eds-init -n eds  # puis adapter args
+#   kubectl apply -f 40-installation.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eds-init
+  namespace: eds
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: eds
+          image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+          args: ["eds", "init"]
+          envFrom:
+            - secretRef:
+                name: eds-secrets
+          env:
+            - name: CLICKHOUSE_HOST
+              value: clickhouse.eds.svc.cluster.local
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eds-acces
+  namespace: eds
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: eds
+          image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+          args: ["eds", "acces"]
+          envFrom:
+            - secretRef:
+                name: eds-secrets
+          env:
+            - name: CLICKHOUSE_HOST
+              value: clickhouse.eds.svc.cluster.local
+            - name: METABASE_URL
+              value: http://metabase.eds.svc.cluster.local:3000
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: eds-metabase
+  namespace: eds
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: eds
+          image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+          args: ["eds", "metabase"]
+          envFrom:
+            - secretRef:
+                name: eds-secrets
+          env:
+            - name: CLICKHOUSE_HOST
+              value: clickhouse.eds.svc.cluster.local
+            - name: CLICKHOUSE_DOCKER_HOST
+              value: clickhouse.eds.svc.cluster.local
+            - name: METABASE_URL
+              value: http://metabase.eds.svc.cluster.local:3000
