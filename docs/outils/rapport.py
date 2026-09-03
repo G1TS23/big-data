@@ -35,11 +35,20 @@ CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 # Ordre du rapport. Le dossier d'abord — c'est la partie 1 attendue — puis
 # l'exploitation, puis la validation en annexe : elle justifie les chiffres des
 # deux précédentes et n'a pas à être lue en premier.
-CHAPITRES = [
+#
+# Un document ABSENT est simplement sauté. C'est ce qui permet à un chapitre
+# optionnel — le passage au cloud, travaillé sur une branche — d'entrer dans le
+# rapport sans que le générateur change, et d'en sortir sans laisser de trace si
+# ce travail n'aboutit pas.
+CHAPITRES_POSSIBLES = [
     ("DOSSIER.md", "dossier"),
     ("EXPLOITATION.md", "exploitation"),
+    ("CLOUD.md", "cloud"),
     ("VALIDATION.md", "validation"),
 ]
+
+CHAPITRES = [(f, p) for f, p in CHAPITRES_POSSIBLES if (Path(__file__).resolve()
+              .parents[2] / "docs" / f).is_file()]
 
 STYLE = """
 @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
