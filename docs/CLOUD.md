@@ -189,8 +189,32 @@ validation en contrôle la syntaxe, pas l'existence.
 ### Niveau 2 — un plan, sans rien créer
 
 `terraform plan` demande un compte mais ne crée aucune ressource et ne coûte
-rien. Il confronte la configuration à l'API, donc il attrape précisément ce que
-le niveau 1 laisse passer.
+rien. Il confronte la configuration à l'**API**, donc il attrape précisément ce
+que le niveau 1 laisse passer : gabarits inexistants, noms de rôles erronés,
+quotas insuffisants.
+
+**Exécuté sur la souscription du projet**, le plan aboutit :
+
+```
+Plan: 16 to add, 0 to change, 0 to destroy.
+```
+
+| ressource | rôle |
+|---|---|
+| `resource_group` | tout l'entrepôt y vit, rien ailleurs |
+| `virtual_network` + `subnet` | le réseau privé |
+| `kubernetes_cluster` | 2 nœuds, 4 vCPU sur les 6 du quota |
+| `container_registry` | l'image du pipeline |
+| `key_vault` + `key_vault_secret` | le coffre, et le seul secret que Terraform connaisse |
+| `storage_account` + `container` + `management_policy` | le lake, versionné, avec sa rétention |
+| `postgresql_flexible_server` + `database` | l'état de Metabase |
+| 3 × `role_assignment` | moindre privilège : lire le coffre, tirer l'image |
+| `random_password` | le mot de passe de la base, généré |
+
+Ce que ce plan démontre et que la validation hors ligne ne pouvait pas : les
+noms de rôles — `Key Vault Secrets User`, `AcrPull` — existent, le gabarit
+`Standard_B2s_v2` est disponible dans la région, et la souscription accepte
+chacune de ces créations.
 
 ### Niveau 3 — déployer, capturer, détruire
 

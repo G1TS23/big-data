@@ -1,6 +1,6 @@
 # Raccourcis d'exploitation. Les commandes restent utilisables telles quelles
 # sans make ; voir docs/EXPLOITATION.md.
-.PHONY: aide env socle pipeline tests verrou capture rapport livrables infra
+.PHONY: aide env socle pipeline tests verrou capture rapport livrables infra infra-plan
 
 aide:
 	@echo "env       écrit .env, sel et mots de passe tirés au sort"
@@ -12,6 +12,7 @@ aide:
 	@echo "rapport   assemble les documents en un PDF, hors du dépôt"
 	@echo "livrables rapport PDF + archive du dépôt, dans ../rendu/"
 	@echo "infra     vérifie l'infrastructure : terraform + manifestes k8s"
+	@echo "infra-plan  confronte l'infrastructure à l'API Azure, sans rien créer"
 
 # N'écrase jamais un .env existant : les secrets en place sont irremplaçables
 # (changer EDS_SALT casse la continuité des pseudonymes).
@@ -80,3 +81,9 @@ infra:
 	@echo "── manifestes Kubernetes"
 	docker run --rm -v "$(PWD)/infra/kubernetes:/w" ghcr.io/yannh/kubeconform:latest \
 	  -summary -strict /w
+
+# Le niveau supérieur de vérification : l'API répond, mais rien n'est créé.
+# Demande « az login ». Ne coûte rien.
+infra-plan:
+	ARM_SUBSCRIPTION_ID=$$(az account show --query id -o tsv) \
+	  terraform -chdir=infra/terraform plan -input=false
