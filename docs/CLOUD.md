@@ -357,19 +357,49 @@ C'est le seul composant du pipeline encore lié à un système de fichiers :
 le cloud, il devrait écrire dans le bucket — **provisionné, chiffré et verrouillé
 par `infra/terraform/stockage.tf`, mais que le code ne sait pas encore utiliser.**
 
-Le travail n'est pas anodin, et c'est pourquoi il n'a pas été bâclé :
+#### Le mécanisme des `.partiel` disparaît, il ne se complique pas
 
-- le renommage atomique n'existe pas en stockage objet ; il faut le remplacer
-  par une écriture puis une copie, ou s'appuyer sur la cohérence forte du
-  fournisseur ;
-- le nettoyage des `.partiel` devient un parcours de préfixe ;
-- la vérification d'existence, qui rend un lake purgé auto-réparable, devient un
-  appel réseau ;
-- une dépendance s'ajoute au projet, qui n'en compte aujourd'hui que six
+En local, une copie s'écrit sous `<nom>.partiel` puis est **renommée**. Le
+renommage étant atomique, un fichier présent sous son nom définitif est
+forcément complet, et une copie interrompue laisse un résidu que `eds lake`
+efface au démarrage.
+
+En stockage objet, cette précaution devient **inutile** — et c'est une bonne
+nouvelle, pas une difficulté :
+
+| | système de fichiers | stockage objet |
+|---|---|---|
+| écriture | visible au fur et à mesure | **invisible jusqu'à la validation** |
+| publication | renommage atomique | la validation *est* atomique |
+| écriture interrompue | laisse un fichier tronqué | ne laisse **rien de visible** |
+| résidus à nettoyer | les `.partiel` | aucun |
+
+Un envoi en une requête remplace le blob entièrement : un lecteur voit l'ancien
+ou le nouveau, jamais un état intermédiaire. Un envoi en blocs, pour les gros
+fichiers, dépose des blocs qui **n'apparaissent pas** tant qu'ils ne sont pas
+validés, et cette validation est elle aussi atomique. Des blocs jamais validés
+restent invisibles au listage et sont purgés par le fournisseur au bout de sept
+jours.
+
+Autrement dit, la garantie que le lake construit à la main — *ce qui porte son
+nom définitif est complet* — est **rendue par le stockage lui-même**. On écrit
+directement sous le nom final, et `nettoyer_residus()` n'a plus rien à nettoyer.
+
+#### Ce qui reste réellement à faire
+
+- **La vérification d'existence devient un appel réseau.** C'est elle qui rend
+  un lake purgé auto-réparable ; elle passe d'un `stat` local à une requête, avec
+  la latence et le mode de panne que cela ajoute.
+- **Une dépendance s'ajoute** au projet, qui n'en compte aujourd'hui que six
   directes.
+- **Une écriture concurrente mérite d'être bornée.** Le verrou de fichier ne
+  protège que d'un second processus sur la même machine ; une condition
+  d'écriture — n'écrire que si l'objet n'existe pas — rendrait la publication
+  sûre même entre deux nœuds.
 
-En attendant, le lake reste sur un volume persistant — ce qui fonctionne, mais
-attache le pipeline à un nœud.
+En attendant, le lake reste sur un volume persistant — ce qui fonctionne, et où
+le mécanisme des `.partiel` garde tout son sens, puisqu'il s'agit d'un vrai
+système de fichiers.
 
 ### Ce que nous ne recommandons pas
 
