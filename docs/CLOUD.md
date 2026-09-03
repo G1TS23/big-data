@@ -352,10 +352,10 @@ Trois pistes en découlent, par ordre de gain :
 
 ## 9. Ce qui reste à faire
 
-### Le lake sur stockage objet
+### Porter le lake sur stockage objet — non fait, et pourquoi
 
-Aujourd'hui, le lake vit sur un **disque managé** attaché au cluster : un vrai
-système de fichiers, où `eds/lake.py` fonctionne sans modification. C'est ce qui
+**Aujourd'hui le lake n'est PAS sur du stockage objet.** Il vit sur un **disque
+managé** attaché au cluster : un vrai système de fichiers, où `eds/lake.py` fonctionne sans modification. C'est ce qui
 permet de déployer sans toucher au code.
 
 **Nous n'avons délibérément pas provisionné de stockage objet inutilisé.** Une
@@ -380,15 +380,18 @@ Une garantie que l'on croit tenir et qui ne tient plus est pire qu'une garantie
 absente. Le portage doit donc passer par le **client objet**, qui rend
 l'atomicité nativement — et non par un montage qui la simule.
 
-#### Le mécanisme des `.partiel` disparaît, il ne se complique pas
+#### Le jour où le portage aura lieu, les `.partiel` disparaîtront
 
-En local, une copie s'écrit sous `<nom>.partiel` puis est **renommée**. Le
+Ce qui suit décrit une situation **future**. Tant que le lake est un disque, le
+mécanisme actuel reste en place et reste nécessaire.
+
+Aujourd'hui, une copie s'écrit sous `<nom>.partiel` puis est **renommée**. Le
 renommage étant atomique, un fichier présent sous son nom définitif est
 forcément complet, et une copie interrompue laisse un résidu que `eds lake`
-efface au démarrage.
+efface au démarrage. **C'est ce qui tourne, en local comme sur le cluster.**
 
-En stockage objet, cette précaution devient **inutile** — et c'est une bonne
-nouvelle, pas une difficulté :
+Le jour où le lake passera en stockage objet, cette précaution deviendra
+**inutile** — et c'est une bonne nouvelle, pas une difficulté :
 
 | | système de fichiers | stockage objet |
 |---|---|---|
@@ -404,9 +407,10 @@ validés, et cette validation est elle aussi atomique. Des blocs jamais validés
 restent invisibles au listage et sont purgés par le fournisseur au bout de sept
 jours.
 
-Autrement dit, la garantie que le lake construit à la main — *ce qui porte son
-nom définitif est complet* — est **rendue par le stockage lui-même**. On écrit
-directement sous le nom final, et `nettoyer_residus()` n'a plus rien à nettoyer.
+Autrement dit, la garantie que le lake construit aujourd'hui à la main — *ce qui
+porte son nom définitif est complet* — serait alors **rendue par le stockage
+lui-même**. On écrirait directement sous le nom final, et `nettoyer_residus()`
+n'aurait plus rien à nettoyer.
 
 #### Ce qui reste réellement à faire
 
