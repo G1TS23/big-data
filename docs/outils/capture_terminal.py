@@ -137,7 +137,9 @@ def main() -> None:
     pied = next(l for l in brut if "cloisonnement vérifié" in l).rstrip()
 
     rendre(sortie,
-           invite="olivier@chu ~/bigdata/projet (.venv) $ eds acces",
+           # Invite neutre : le rendu est anonyme, aucun nom d'utilisateur ne doit
+           # apparaître sur une image du dossier.
+           invite="eds@chu ~/eds-chu (.venv) $ eds acces",
            titre="eds — démonstration du cloisonnement des droits",
            colonnes=colonnes, pied=pied)
 

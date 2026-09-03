@@ -15,6 +15,9 @@ sinon perdus. Le HTML intermédiaire est conservé à côté du PDF.
 """
 from __future__ import annotations
 
+import base64
+import mimetypes
+import re
 import shutil
 import subprocess
 import sys
@@ -95,6 +98,25 @@ li { margin: .22em 0; }
 .sommaire li.partie > ol { font-weight: 400; }
 .sommaire a { color: inherit; }
 """
+
+
+def incorporer_images(page: str) -> str:
+    """Remplace chaque image par son contenu, encodé en data URI.
+
+    Deux raisons. Le rapport devient autonome : un seul fichier, qui s'ouvre
+    n'importe où. Et surtout, plus aucun chemin absolu n'y figure — la balise
+    <base> portait le répertoire personnel de l'auteur, ce qui contredit un
+    rendu anonyme.
+    """
+    def remplacer(m: re.Match) -> str:
+        fichier = DOCS / m.group(1)
+        if not fichier.is_file():
+            return m.group(0)
+        type_mime = mimetypes.guess_type(fichier.name)[0] or "application/octet-stream"
+        donnees = base64.b64encode(fichier.read_bytes()).decode("ascii")
+        return f'src="data:{type_mime};base64,{donnees}"'
+
+    return re.sub(r'src="([^":]+)"', remplacer, page)
 
 
 def relier(html_chapitre: str) -> str:
@@ -181,7 +203,6 @@ cités y sont reproductibles par <code>eds run</code> puis
     return f"""<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <title>EDS CHU — rapport de projet</title>
-<base href="{(DOCS.as_uri())}/">
 <style>{STYLE}</style>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script>
@@ -207,7 +228,7 @@ def main() -> int:
     destination.parent.mkdir(parents=True, exist_ok=True)
 
     page = destination.with_suffix(".html")
-    page.write_text(construire_html(), encoding="utf-8", newline="")
+    page.write_text(incorporer_images(construire_html()), encoding="utf-8", newline="")
 
     # virtual-time-budget : Mermaid dessine ses schémas après le chargement.
     # Sans ce délai, Chrome imprimerait les blocs encore vides.
