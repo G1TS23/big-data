@@ -1,34 +1,42 @@
+output "groupe_ressources" {
+  description = "Tout l'entrepôt vit ici. « terraform destroy » ne laisse rien ailleurs."
+  value       = azurerm_resource_group.eds.name
+}
+
 output "registre" {
   description = "Où pousser l'image : docker push <registre>/eds:<version>"
-  value       = scaleway_registry_namespace.eds.endpoint
+  value       = azurerm_container_registry.eds.login_server
+}
+
+output "cluster" {
+  description = "Récupérer le kubeconfig : az aks get-credentials -g <rg> -n <cluster>"
+  value       = azurerm_kubernetes_cluster.eds.name
+}
+
+output "coffre" {
+  description = "Y déposer les secrets, hors de Terraform : az keyvault secret set --vault-name <coffre> ..."
+  value       = azurerm_key_vault.eds.name
 }
 
 output "lake" {
-  description = "Bucket du lake, à renseigner dans EDS_LAKE_PATH."
-  value       = scaleway_object_bucket.lake.endpoint
+  description = "Conteneur du lake, quand eds/lake.py saura y écrire."
+  value       = "${azurerm_storage_account.lake.name}/${azurerm_storage_container.lake.name}"
 }
 
-output "cluster_id" {
-  description = "Identifiant du cluster, pour récupérer le kubeconfig."
-  value       = scaleway_k8s_cluster.eds.id
+output "base_metabase" {
+  description = "Hôte de la base applicative de Metabase."
+  value       = azurerm_postgresql_flexible_server.metabase.fqdn
 }
 
-output "secrets" {
-  description = "Secrets créés VIDES : y déposer les valeurs hors de Terraform."
-  value = {
-    sel        = scaleway_secret.sel_pseudonymisation.id
-    clickhouse = scaleway_secret.mots_de_passe_clickhouse.id
-    metabase   = scaleway_secret.administration_metabase.id
-  }
-}
-
-output "cle_pipeline" {
-  description = "Clé d'accès de l'application pipeline."
-  value       = scaleway_iam_api_key.pipeline.access_key
-}
-
-output "cle_pipeline_secrete" {
-  description = "Secret associé. Ne jamais journaliser."
-  value       = scaleway_iam_api_key.pipeline.secret_key
-  sensitive   = true
+output "secrets_a_deposer" {
+  description = "Les secrets que Terraform ne renseigne PAS, et qu'il faut déposer."
+  value = [
+    "eds-salt",
+    "clickhouse-admin-password",
+    "clickhouse-pilotage-password",
+    "clickhouse-exploitation-password",
+    "clickhouse-recherche-password",
+    "metabase-admin-password",
+    "metabase-demo-password",
+  ]
 }

@@ -1,38 +1,43 @@
-# Les secrets sont DÉCLARÉS ici, jamais renseignés.
+# Le coffre. Les secrets y sont DÉCLARÉS, jamais renseignés par Terraform.
 #
-# Terraform crée le conteneur ; la valeur y est déposée hors de son état, par
-# la console ou la CLI. La raison est simple : le fichier d'état de Terraform
-# contient en clair tout ce qu'on lui confie. Écrire le sel dans une variable
-# reviendrait à le publier dans terraform.tfstate.
+# La raison tient en une phrase : le fichier d'état de Terraform contient en
+# clair tout ce qu'on lui confie. Y écrire le sel de pseudonymisation
+# reviendrait à le publier.
 #
 # C'est la réponse à ce que le dossier annonce comme une limite : « en
 # production, ce sel appartient à un coffre, pas à un fichier .env ».
 
-resource "scaleway_secret" "sel_pseudonymisation" {
-  name        = "${local.prefixe}-sel"
-  description = <<-TEXTE
-    Sel HMAC de pseudonymisation des identifiants patients.
+resource "azurerm_key_vault" "eds" {
+  name                = "kv-${local.prefixe}"
+  resource_group_name = azurerm_resource_group.eds.name
+  location            = azurerm_resource_group.eds.location
+  tenant_id           = data.azurerm_client_config.courant.tenant_id
+  sku_name            = "standard"
+  tags                = local.etiquettes
 
-    LE CHANGER ROMPT LA CONTINUITÉ DES PSEUDONYMES : les patients déjà chargés
-    recevraient de nouvelles clés et les jointures avec l'historique
-    deviendraient invalides. Une rotation impose de retraiter l'intégralité de
-    la source, lake compris.
-  TEXTE
-  tags        = local.etiquettes
+  # Sans le sel, l'historique des pseudonymes est définitivement perdu : une
+  # suppression accidentelle doit rester réversible.
+  soft_delete_retention_days = 90
+  purge_protection_enabled   = var.environnement == "production"
 
-  # Empêche une suppression accidentelle : sans ce sel, l'historique des
-  # pseudonymes est définitivement perdu.
-  protected = true
+  # Les droits passent par RBAC et non par des politiques d'accès : c'est le
+  # même principe que le cloisonnement du moteur — une identité, des droits
+  # explicites, rien d'implicite.
+  rbac_authorization_enabled = true
 }
 
-resource "scaleway_secret" "mots_de_passe_clickhouse" {
-  name        = "${local.prefixe}-clickhouse"
-  description = "Comptes ClickHouse : administration et les trois comptes cloisonnés par usage."
-  tags        = local.etiquettes
+# Qui déploie peut écrire les secrets. Sans cette attribution, « az keyvault
+# secret set » échouerait juste après la création du coffre.
+resource "azurerm_role_assignment" "coffre_administrateur" {
+  scope                = azurerm_key_vault.eds.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = data.azurerm_client_config.courant.object_id
 }
 
-resource "scaleway_secret" "administration_metabase" {
-  name        = "${local.prefixe}-metabase"
-  description = "Compte d'administration Metabase, utilisé par « eds metabase »."
-  tags        = local.etiquettes
+# Le cluster lit les secrets, et rien d'autre. C'est le moindre privilège
+# appliqué au cloud : le pipeline n'a pas besoin de créer des ressources.
+resource "azurerm_role_assignment" "coffre_cluster" {
+  scope                = azurerm_key_vault.eds.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_kubernetes_cluster.eds.kubelet_identity[0].object_id
 }

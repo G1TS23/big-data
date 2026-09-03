@@ -99,6 +99,10 @@ spec:
         name: donnees
       spec:
         accessModes: ["ReadWriteOnce"]
+        # Disque managé Azure, chiffré au repos par défaut. Le nommer
+        # explicitement évite de dépendre de la classe par défaut du cluster,
+        # qui peut changer d'une version à l'autre.
+        storageClassName: managed-csi
         resources:
           requests:
             storage: 20Gi

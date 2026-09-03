@@ -38,7 +38,7 @@ spec:
             runAsUser: 10001
           containers:
             - name: eds
-              image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+              image: credschurecette.azurecr.io/eds:1.0.0
               args: ["eds", "run"]
               envFrom:
                 - secretRef:
@@ -87,6 +87,7 @@ metadata:
   namespace: eds
 spec:
   accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
   resources:
     requests:
       storage: 10Gi
@@ -98,6 +99,7 @@ metadata:
   namespace: eds
 spec:
   accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
   resources:
     requests:
       storage: 5Gi

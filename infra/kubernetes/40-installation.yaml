@@ -22,7 +22,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: eds
-          image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+          image: credschurecette.azurecr.io/eds:1.0.0
           args: ["eds", "init"]
           envFrom:
             - secretRef:
@@ -46,7 +46,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: eds
-          image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+          image: credschurecette.azurecr.io/eds:1.0.0
           args: ["eds", "acces"]
           envFrom:
             - secretRef:
@@ -72,7 +72,7 @@ spec:
         runAsUser: 10001
       containers:
         - name: eds
-          image: rg.fr-par.scw.cloud/eds-chu-recette/eds:1.0.0
+          image: credschurecette.azurecr.io/eds:1.0.0
           args: ["eds", "metabase"]
           envFrom:
             - secretRef:

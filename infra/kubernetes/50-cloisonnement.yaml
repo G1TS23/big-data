@@ -38,8 +38,9 @@ spec:
         - protocol: TCP
           port: 8123
 ---
-# Metabase est le seul service exposé aux utilisateurs. L'entrée passe par
-# l'Ingress, jamais directement par un pod.
+# Metabase est le seul service exposé aux utilisateurs. L'entrée vient du
+# contrôleur d'ingress, qui vit dans un espace de noms distinct — sur AKS,
+# app-routing-system quand l'extension managée est activée.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -52,6 +53,9 @@ spec:
   policyTypes: [Ingress]
   ingress:
     - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: app-routing-system
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
