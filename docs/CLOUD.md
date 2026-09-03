@@ -363,6 +363,17 @@ infrastructure décrit ce qui tourne ; provisionner un conteneur que rien n'écr
 créerait une ressource facturée, sauvegardée et auditée pour rien — et
 laisserait croire que le lake y vit.
 
+**Ce choix a une conséquence qu'il faut assumer.** Un disque managé se monte en
+accès exclusif : il n'est attaché qu'à un nœud à la fois. Le pipeline est donc
+**épinglé à un nœud**, et la perte de ce nœud rend le lake indisponible jusqu'à
+ce que le volume soit rattaché ailleurs.
+
+À la volumétrie observée — 3,2 Mo de lake — c'est un risque acceptable : le lake
+se reconstruit intégralement depuis la source du CHU, qui vit ailleurs, et la
+reconstruction prend une seconde et demie. Mais c'est bien la raison principale
+de passer au stockage objet le jour venu, davantage que la durabilité ou le
+coût : **découpler le pipeline d'un nœud**.
+
 #### Pourquoi ne pas simplement monter un conteneur objet comme un disque
 
 C'est la fausse bonne idée, et elle mérite d'être écartée explicitement. Azure
