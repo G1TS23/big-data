@@ -26,7 +26,7 @@ incident sont dans le [guide d'exploitation](EXPLOITATION.md).
 
 # Partie 1 — L'interface d'analyse
 
-> Cette partie décrit l'entrepôt **tel qu'il a été livré initialement**, sur les
+> Cette partie décrit l'entrepôt tel qu'il a été livré initialement, sur les
 > cinq flux du sujet. Le CHU a demandé ensuite une évolution : elle fait l'objet
 > de la [partie 2](#partie-2--lévolution-demandée-par-le-chu), qui s'ajoute à
 > celle-ci sans la remplacer. Les deux étapes sont tenues séparées pour qu'on
@@ -41,16 +41,16 @@ projet.
 
 | | Pilotage hospitalier | Recherche clinique |
 |---|---|---|
-| **question** | comment tourne l'hôpital ? | que nous apprennent les pathologies ? |
-| **grain** | le service, la journée | la cohorte |
-| **fraîcheur** | quotidienne | indifférente |
-| **ce qu'il faut voir** | activité, durées, occupation, alertes | prévalence, âge, sexe, comorbidités |
-| **ce qu'il ne doit PAS voir** | rien de nominatif | rien d'opérationnel, ni petit effectif |
+| question | comment tourne l'hôpital ? | que nous apprennent les pathologies ? |
+| grain | le service, la journée | la cohorte |
+| fraîcheur | quotidienne | indifférente |
+| ce qu'il faut voir | activité, durées, occupation, alertes | prévalence, âge, sexe, comorbidités |
+| ce qu'il ne doit PAS voir | rien de nominatif | rien d'opérationnel, ni petit effectif |
 
 Le pilotage a besoin du détail par service et par jour ; la recherche n'en a pas
 l'usage et ne doit pas y accéder. Inversement, la recherche croise âge, sexe et
-pathologie — précisément les combinaisons qui ré-identifient. **Servir les deux
-depuis une base unique reviendrait à donner à chacun les données de l'autre.**
+pathologie — précisément les combinaisons qui ré-identifient. Servir les deux
+depuis une base unique reviendrait à donner à chacun les données de l'autre.
 
 S'y ajoute une contrainte qui n'est pas négociable : ce sont des données de santé
 au sens de l'article 9 du RGPD. La conformité n'est pas une couche posée à la
@@ -58,7 +58,7 @@ fin, c'est une contrainte de conception à chaque étape.
 
 ## 2. Les sources
 
-Le CHU dépose ses fichiers dans un espace en **lecture seule**. Cinq flux
+Le CHU dépose ses fichiers dans un espace en lecture seule. Cinq flux
 déclarés — six tables une fois les référentiels éclatés — trois formats, et
 chacun son calendrier. Ce dernier point compte : parcourir les dates d'un flux
 pour en lire un autre n'en lirait qu'une partie, sans erreur visible.
@@ -117,7 +117,7 @@ flowchart LR
 
 ### Pourquoi un lake, puisque bronze existe déjà
 
-Parce que **la pseudonymisation doit avoir lieu avant tout stockage durable**. Le
+Parce que la pseudonymisation doit avoir lieu avant tout stockage durable. Le
 lake est la première zone que nous maîtrisons ; c'est donc là, et pas plus loin,
 que l'identité disparaît. Bronze reçoit ensuite une copie déjà anonyme, ce qui
 rend la garantie vérifiable : aucune requête sur l'entrepôt ne peut exhiber un
@@ -128,17 +128,17 @@ rejoue depuis le lake sans redemander quoi que ce soit au CHU.
 
 ### Pourquoi quatre couches, et pas deux
 
-Chaque couche a **une seule responsabilité**, et c'est ce qui rend une panne
+Chaque couche a une seule responsabilité, et c'est ce qui rend une panne
 localisable :
 
 | couche | responsabilité | ce qu'elle ne fait pas |
 |---|---|---|
-| **lake** | copier fidèlement, pseudonymiser | interpréter |
-| **bronze** | typer, sans juger | corriger |
-| **silver** | appliquer les règles métier | servir des indicateurs |
-| **gold** | servir un usage, cloisonné | contenir la vérité |
+| lake | copier fidèlement, pseudonymiser | interpréter |
+| bronze | typer, sans juger | corriger |
+| silver | appliquer les règles métier | servir des indicateurs |
+| gold | servir un usage, cloisonné | contenir la vérité |
 
-Bronze reproduit la source **ligne pour ligne** sur les six tables — c'est
+Bronze reproduit la source ligne pour ligne sur les six tables — c'est
 vérifié à chaque exécution. Un écart entre la source et un indicateur se localise
 donc immédiatement : soit la copie, soit une règle, jamais les deux à la fois.
 
@@ -146,12 +146,12 @@ donc immédiatement : soit la copie, soit une règle, jamais les deux à la fois
 
 Le flux volumineux est le monitoring : 41 778 relevés ici, mais des dizaines de
 millions dans un vrai CHU. Un moteur colonne orienté agrégats est le bon outil, et
-il apporte un point décisif pour ce projet : **le cloisonnement est imposé par le
-moteur**, pas par l'application. Un compte qui n'a pas le droit de lire une base
+il apporte un point décisif pour ce projet : le cloisonnement est imposé par le
+moteur, pas par l'application. Un compte qui n'a pas le droit de lire une base
 ne la lit pas, quelle que soit la requête qu'il écrit.
 
-Le corollaire est un principe tenu partout : **Python pilote, le moteur
-transforme.** Les données ne transitent jamais par un `DataFrame` — bronze est
+Le corollaire est un principe tenu partout : Python pilote, le moteur
+transforme. Les données ne transitent jamais par un `DataFrame` — bronze est
 alimentée par la fonction `input()` de ClickHouse, qui lit le fichier avec un
 schéma déclaré. `silver.py` et `gold.py` font chacun une trentaine de lignes en
 face de plusieurs centaines de SQL : c'est la preuve que le calcul est resté dans
@@ -169,9 +169,9 @@ trois bases, trois comptes en lecture seule :
 | Exploitation | `ops` | `bi_exploitation` | journal, qualité, rejets |
 
 Les vues de recherche sont déclarées `SQL SECURITY DEFINER` : elles s'exécutent
-avec les droits de leur créateur, si bien qu'un compte de recherche **ne peut pas
-contourner le seuil** en interrogeant directement silver — il n'y a pas accès.
-`eds acces` en fait la démonstration par **41 contrôles**, moteur et restitution.
+avec les droits de leur créateur, si bien qu'un compte de recherche ne peut pas
+contourner le seuil en interrogeant directement silver — il n'y a pas accès.
+`eds acces` en fait la démonstration par 41 contrôles, moteur et restitution.
 
 ## 4. Les traitements
 
@@ -187,7 +187,7 @@ dans `config/sources.yml` et nulle part ailleurs :
   complète est un quasi-identifiant ; l'année suffit aux tranches d'âge.
 - **suppression** — `nir`, `nom`, `prenom` et `patient_id` ne sont jamais écrits.
 
-La politique est **déclarative et centralisée** : c'est la pièce à produire pour
+La politique est déclarative et centralisée : c'est la pièce à produire pour
 justifier « aucune donnée identifiante n'entre ». Un contrôle de configuration
 refuse d'exposer une colonne déclarée supprimée, et un crochet `pre-commit`
 interdit qu'une donnée identifiante entre dans le dépôt Git.
@@ -198,22 +198,22 @@ Rejeter une ligne, c'est décider qu'elle est fausse. Toutes ne le sont pas.
 
 | | REJET | SIGNALEMENT |
 |---|---|---|
-| **la valeur est** | fausse | vraie, mais gênante |
-| **exemple** | FC à 0 bpm : le capteur ment | patient réadmis après un décès |
-| **la ligne est** | écartée dans `ops.rejects` | conservée et marquée |
+| la valeur est | fausse | vraie, mais gênante |
+| exemple | FC à 0 bpm : le capteur ment | patient réadmis après un décès |
+| la ligne est | écartée dans `ops.rejects` | conservée et marquée |
 
-La distinction est structurante sur le monitoring : une valeur **hors bornes
-physiologiques** est fausse et sort ; une valeur **hors seuils cliniques** est
+La distinction est structurante sur le monitoring : une valeur hors bornes
+physiologiques est fausse et sort ; une valeur hors seuils cliniques est
 vraie mais mauvaise pour le patient, elle reste et devient une alerte. Les
 confondre reviendrait à supprimer les patients qui vont mal.
 
-Onze contrôles alimentent `ops.data_quality` à chaque exécution : **deux règles
-de rejet** — sortie antérieure à l'admission, fréquence cardiaque hors bornes —
-et **neuf signalements**. Le déséquilibre est voulu : on écarte le moins
+Onze contrôles alimentent `ops.data_quality` à chaque exécution : deux règles
+de rejet — sortie antérieure à l'admission, fréquence cardiaque hors bornes —
+et neuf signalements. Le déséquilibre est voulu : on écarte le moins
 possible, on compte tout.
 
-Deux de ces signalements valent zéro sur le jeu livré, et **les contrôles restent
-en place**. Une livraison antérieure présentait 53,7 % de séjours chevauchants et
+Deux de ces signalements valent zéro sur le jeu livré, et les contrôles restent
+en place. Une livraison antérieure présentait 53,7 % de séjours chevauchants et
 14,4 % de modes de sortie manquants ; la mesure est ce qui a permis de le dire.
 La supprimer parce qu'elle affiche zéro rendrait indistinguables « aucune
 anomalie » et « plus personne ne regarde ».
@@ -246,7 +246,7 @@ brancher un quatrième fait sans toucher au modèle.
 avec un calendrier métier — jours fériés, périodes budgétaires — que le CHU ne
 fournit pas.
 
-`fait_monitoring` porte un `service_code` **dénormalisé** depuis le séjour. Ce
+`fait_monitoring` porte un `service_code` dénormalisé depuis le séjour. Ce
 n'est pas une redondance mais la condition pour ne jamais joindre deux tables de
 faits entre elles : une telle jointure multiplierait les lignes sans lever
 d'erreur.
@@ -254,7 +254,7 @@ d'erreur.
 ### La traçabilité
 
 `ops` enregistre, à chaque exécution : le journal des runs, les lignes rejetées
-avec leur règle, le bilan qualité, et **les paramètres utilisés**. On sait donc
+avec leur règle, le bilan qualité, et les paramètres utilisés. On sait donc
 toujours avec quels seuils un chiffre a été produit — condition pour qu'un
 clinicien puisse les réviser sans casser l'historique.
 
@@ -275,9 +275,9 @@ réadmission à 30 jours, alertes sur les constantes.
 
 **Recherche** — six vues de cohortes : prévalence, distribution par âge et par
 sexe, durée par pathologie, comorbidités. Toutes appliquent un seuil de diffusion
-de **k = 5 patients**.
+de k = 5 patients.
 
-Chacun de ces chiffres a été **recalculé à la main** depuis les fichiers bruts,
+Chacun de ces chiffres a été recalculé à la main depuis les fichiers bruts,
 avec du code qui n'importe pas une ligne du pipeline, et confronté à la feuille
 de réponses du commanditaire. Le détail est dans [VALIDATION.md](VALIDATION.md).
 
@@ -292,7 +292,7 @@ Trois tableaux de bord Metabase, 22 cartes, une collection par usage.
 | Exploitation du pipeline | équipe technique | 5 |
 
 Metabase en édition communautaire n'exporte pas ses tableaux de bord : ils sont
-donc **décrits dans `config/dashboards.yml`**, versionnés et reconstructibles à
+donc décrits dans `config/dashboards.yml`, versionnés et reconstructibles à
 l'identique par `eds metabase`.
 
 ### À quelle question répond chaque carte
@@ -323,37 +323,33 @@ tenues partout :
 
 | ce qu'on montre | forme retenue | pourquoi |
 |---|---|---|
-| un nombre isolé | **scalaire** | rien à comparer : un graphique le noierait |
-| des catégories à comparer | **barres horizontales, triées** | le libellé se lit sans incliner la tête, et le tri fait le classement |
-| un **flux** dans le temps | **barres verticales** | des admissions se comptent par jour, elles ne se prolongent pas d'un jour à l'autre |
-| un **stock** dans le temps | **courbe** | des patients présents un jour le sont encore le lendemain : la continuité est réelle, la ligne la montre |
-| une liste à lire | **table** | les comorbidités ou les exécutions se lisent ligne à ligne, pas en longueurs comparées |
+| un nombre isolé | scalaire | rien à comparer : un graphique le noierait |
+| des catégories à comparer | barres horizontales, triées | le libellé se lit sans incliner la tête, et le tri fait le classement |
+| un flux dans le temps | barres verticales | des admissions se comptent par jour, elles ne se prolongent pas d'un jour à l'autre |
+| un stock dans le temps | courbe | des patients présents un jour le sont encore le lendemain : la continuité est réelle, la ligne la montre |
+| une liste à lire | table | les comorbidités ou les exécutions se lisent ligne à ligne, pas en longueurs comparées |
 
-La distinction **flux / stock** est celle qui décide entre les deux formes
+La distinction flux / stock est celle qui décide entre les deux formes
 temporelles du tableau de pilotage : « Passages aux urgences par jour » est un
 flux, « Patients présents chaque jour » est un stock. Les tracer pareil
 laisserait croire qu'on peut les additionner.
 
 ### Ce que nous avons écarté
 
-Un choix se défend autant par ce qu'il rejette. Quatre cartes ont existé puis
-disparu :
+Un choix se défend autant par ce qu'il rejette. Deux propositions ont existé
+puis disparu :
 
 - **une distribution globale par âge et par sexe.** Le sujet fait porter cette
   analyse sur les diagnostics, pas sur les séjours : la carte répondait à une
   question que personne ne pose.
-- **un filtre par pathologie** sur les cohortes. Il obligeait à cliquer pour
-  comparer ; deux petits multiples montrent tout d'un coup d'œil.
 - **une sixième tranche d'âge.** La rampe ordonnée n'offre pas assez d'écart de
   clarté pour six pas : le sixième devenait indistinguable du cinquième. La
   lisibilité a tranché contre la finesse.
-- **une `dim_date`.** Elle n'aurait ajouté qu'une jointure : le moteur sait
-  extraire un mois, et le CHU ne fournit aucun calendrier métier.
 
 ### Les couleurs, et pourquoi elles ne sont pas décoratives
 
-Les tranches d'âge forment un axe **ordonné**. Elles emploient donc une rampe
-d'une **seule teinte**, du clair au foncé : l'ordre se lit dans la clarté, ce
+Les tranches d'âge forment un axe ordonné. Elles emploient donc une rampe
+d'une seule teinte, du clair au foncé : l'ordre se lit dans la clarté, ce
 qu'aucun daltonisme n'altère, là où des couleurs distinctes nieraient l'ordre et
 perdraient cette propriété. Les séries catégorielles, elles, utilisent une
 palette dont chaque paire voisine reste séparable ; les teintes qui passent sous
@@ -369,7 +365,7 @@ Quatre indicateurs de synthèse en tête, puis le détail par service et par jou
 
 ![Tableau de bord Pilotage](img/tdb-pilotage.png)
 
-La courbe d'occupation s'arrête au **28 août**, date du dernier dépôt, et non à
+La courbe d'occupation s'arrête au 28 août, date du dernier dépôt, et non à
 la date du jour : au-delà, les admissions ne sont plus connues et la courbe
 décroîtrait sans que l'hôpital se vide. Le décrochage des trois derniers jours,
 lui, appartient à la livraison — les dépôts du 26 au 28 sont partiels.
@@ -385,7 +381,7 @@ le seuil de k = 5 s'applique, et il se voit sans qu'on ait à l'expliquer.
 L'amyotrophie spinale passe avec ses 8 patients ; la mucoviscidose (4) et la
 trisomie 21 (3) sont absentes.
 
-Les tranches d'âge emploient une **rampe d'une seule teinte**, du clair au
+Les tranches d'âge emploient une rampe d'une seule teinte, du clair au
 foncé : l'ordre se lit dans la clarté, ce qu'aucun daltonisme n'altère.
 
 ![Cohortes par sexe, durées et comorbidités](img/tdb-recherche-2.png)
@@ -409,12 +405,12 @@ sont toujours, de sorte qu'« aucune anomalie » ne puisse silencieusement deven
 
 ### La démonstration du cloisonnement
 
-`eds acces` la produit automatiquement : **41 contrôles**, chacun avec son
+`eds acces` la produit automatiquement : 41 contrôles, chacun avec son
 résultat attendu et son résultat obtenu.
 
 ![Démonstration du cloisonnement](img/cloisonnement-eds-acces.png)
 
-Elle se vérifie aussi à l'écran, et à **deux étages indépendants**. Ce qui suit
+Elle se vérifie aussi à l'écran, et à deux étages indépendants. Ce qui suit
 montre le compte de recherche, `recherche@chu.local` / `bi_recherche`.
 
 **Étage restitution — Metabase.** Il ne voit que sa collection ; le tableau de
@@ -441,7 +437,7 @@ l'alimente lui est fermée.
 
 ![Requête refusée sur silver](img/acces-clickhouse-silver-refuse.png)
 
-La requête autorisée montre le **seuil de diffusion à l'œuvre** : 11 pathologies
+La requête autorisée montre le seuil de diffusion à l'œuvre : 11 pathologies
 sont renvoyées alors que le référentiel en compte 13. `G12` passe avec ses
 8 patients ; `E84` (4 patients) et `Q90` (3) sont supprimées. Personne n'a eu à
 le demander — c'est la vue qui l'impose.
@@ -453,7 +449,7 @@ Code: 497. bi_recherche: Not enough privileges. […] ON silver.dim_patient.
 (ACCESS_DENIED)
 ```
 
-Le refus vient du **moteur**, pas de l'application. Une clause `WHERE` oubliée
+Le refus vient du moteur, pas de l'application. Une clause `WHERE` oubliée
 dans une vue ne pourrait pas ouvrir cette porte.
 
 ## 7. Limites et recommandations
@@ -491,6 +487,10 @@ signalées, jamais corrigées en silence : la réponse correcte est de les remon
   `source-filestorage/` versionné ici n'aurait pas sa place en production.
 - **Le sel de pseudonymisation** doit vivre dans un coffre, non dans un fichier
   `.env` : il est aujourd'hui non versionné, ce qui est le minimum, pas la cible.
+
+Ces deux limites-là ont été levées depuis, hors du périmètre demandé : le
+chapitre [Passage au cloud](CLOUD.md) porte l'entrepôt chez un hébergeur, met
+le sel dans un coffre, et rend compte de ce que l'exercice a coûté.
 - **La reconstruction intégrale** de silver et gold à chaque exécution tient à
   cette volumétrie. À l'échelle réelle, il faudrait reconstruire par partition.
 - **Une `dim_date`** deviendrait utile dès que le CHU fournirait son calendrier
@@ -502,16 +502,16 @@ signalées, jamais corrigées en silence : la réponse correcte est de les remon
 
 # Partie 2 — L'évolution demandée par le CHU
 
-> Cette partie **s'ajoute** à la partie 1. Tout ce qui y est décrit — les cinq
+> Cette partie s'ajoute à la partie 1. Tout ce qui y est décrit — les cinq
 > flux, les trois faits, les vingt-deux cartes — reste en place et continue de
 > produire les mêmes chiffres. C'est précisément ce que le CHU demandait :
 > *faire évoluer sans tout refaire, et sans rien casser.*
 
 ## 8. La demande
 
-Le CHU a déposé, le **2026-08-29**, un dépôt supplémentaire : une description
+Le CHU a déposé, le 2026-08-29, un dépôt supplémentaire : une description
 plus fine des services et un flux d'actes médicaux. La consigne était explicite —
-faire évoluer le modèle existant, sans tout refaire et **sans rien casser**.
+faire évoluer le modèle existant, sans tout refaire et sans rien casser.
 
 | fichier | contenu |
 |---|---|
@@ -524,7 +524,7 @@ service, actes par type, densité d'actes par lit, montant facturé.
 
 ## 9. Ce qui a changé, ce qui n'a pas bougé
 
-**Le socle n'a pas bougé.** Sur 92 fichiers, le lake n'en a copié que **3** : les
+**Le socle n'a pas bougé.** Sur 92 fichiers, le lake n'en a copié que 3 : les
 89 de la partie 1 sont reconnus sur leur date et pas un octet n'en est relu. La
 découverte teste l'existence de chaque fichier et ignore les dates où il manque,
 si bien qu'un référentiel arrivant en cours de route s'ingère comme les autres —
@@ -542,16 +542,16 @@ Le coût de l'évolution, mesuré :
 | tables gold pilotage | 8 | 11 | +3 |
 | contrôles qualité | 11 | 13 | +2 |
 | cartes | 22 | 28 | +6 |
-| **indicateurs de la partie 1** | — | — | **inchangés** |
+| indicateurs de la partie 1 | — | — | inchangés |
 
 Aucune table de la partie 1 n'a été supprimée ni redéfinie. `dim_service` est la
-seule à changer de forme : elle **gagne** trois colonnes — catégorie, capacité en
+seule à changer de forme : elle gagne trois colonnes — catégorie, capacité en
 lits, pôle — et un témoin `est_decrit`. Ses deux colonnes d'origine sont
-intactes, si bien que les **cinq indicateurs qui s'appuyaient déjà sur elle** —
+intactes, si bien que les cinq indicateurs qui s'appuyaient déjà sur elle —
 DMS par service, activité par jour, occupation, réadmission par service, alertes
 par jour — continuent de fonctionner sans qu'une ligne de leur SQL ait changé.
 
-C'est le bénéfice d'une **dimension conforme** : on l'enrichit par la droite, et
+C'est le bénéfice d'une dimension conforme : on l'enrichit par la droite, et
 ce qui la lisait déjà continue de la lire.
 
 Le modèle après évolution, la partie 1 en gris :
@@ -571,7 +571,7 @@ erDiagram
 des actes, et c'est la raison pour laquelle aucune jointure entre deux faits
 n'est nécessaire.
 
-La hiérarchie **service → catégorie → pôle** est traitée comme trois niveaux
+La hiérarchie service → catégorie → pôle est traitée comme trois niveaux
 d'agrégation, non comme une redondance : elle permet de lire la même activité à
 trois échelles.
 
@@ -583,22 +583,22 @@ sont désormais gardés par des tests — vérifiés en les cassant volontaireme
 
 ### Le référentiel de description est incomplet
 
-Il décrit **7 services sur 8**. `NEURO` n'y figure pas, et c'est le deuxième
+Il décrit 7 services sur 8. `NEURO` n'y figure pas, et c'est le deuxième
 service en volume : 1 208 séjours, 1 471 actes, 393 850 € de facturation.
 
-Un `INNER JOIN` l'aurait effacé de tous les indicateurs par catégorie **sans un
-mot** — les totaux seraient restés cohérents entre eux, et faux. Le choix retenu :
+Un `INNER JOIN` l'aurait effacé de tous les indicateurs par catégorie sans un
+mot — les totaux seraient restés cohérents entre eux, et faux. Le choix retenu :
 
 - `LEFT JOIN`, le service reste dans la dimension ;
-- sa catégorie et son pôle valent explicitement `non décrit`, **visibles sur les
-  graphiques** plutôt qu'escamotés ;
+- sa catégorie et son pôle valent explicitement `non décrit`, visibles sur les
+  graphiques plutôt qu'escamotés ;
 - **`capacite_lits` reste `NULL`, jamais 0.** Un service non décrit n'a pas zéro
   lit, il a un nombre de lits inconnu. Écrire 0 diviserait par zéro dans la
   densité d'actes par lit.
 
 La densité par lit est donc incalculable pour ce service, et la carte l'écarte
 plutôt que de l'afficher à zéro — ce qui le ferait passer pour inactif. La
-capacité d'une catégorie n'est de même renseignée que si **tous** ses services le
+capacité d'une catégorie n'est de même renseignée que si tous ses services le
 sont : une somme partielle se laisserait comparer aux autres sans dire qu'elle
 est sous-estimée.
 
@@ -609,15 +609,15 @@ actes par service impose donc de remonter au séjour — sans relier deux tables
 faits.
 
 Joindre `fait_acte` à `fait_sejour` multiplierait chaque séjour par son nombre
-d'actes : **8 112 séjours au lieu de 6 729**, et aucune erreur ne se lèverait. La
+d'actes : 8 112 séjours au lieu de 6 729, et aucune erreur ne se lèverait. La
 solution est celle que le projet appliquait déjà au monitoring : `service_code`
-est **dénormalisé sur `fait_acte`** à la construction. Quand deux comptes doivent
+est dénormalisé sur `fait_acte` à la construction. Quand deux comptes doivent
 se rencontrer — actes par séjour — ils sont agrégés séparément puis rapprochés
 sur une clé de dimension, jamais sur une ligne de fait.
 
 ## 11. Les nouveaux indicateurs
 
-Trois des cinq partagent le **même grain**, un service. Ils tiennent donc dans
+Trois des cinq partagent le même grain, un service. Ils tiennent donc dans
 une seule table plutôt que dans trois presque identiques : le grain définit la
 table, et le multiplier sans raison multiplierait les occasions de les voir
 diverger.
@@ -626,7 +626,7 @@ diverger.
 |---|---:|---:|---:|---:|---:|
 | CARDIO | 1 935 | 30 | 64,5 | 1,21 | 521 655 € |
 | URGENCES | 1 731 | 20 | 86,6 | 1,22 | 478 585 € |
-| **NEURO** | 1 471 | *—* | *—* | 1,22 | 393 850 € |
+| NEURO | 1 471 | *—* | *—* | 1,22 | 393 850 € |
 | PNEUMO | 1 009 | 28 | 36,0 | 1,20 | 268 045 € |
 | PEDIA | 598 | 22 | 27,2 | 1,19 | 171 165 € |
 | CHIR | 564 | 40 | 14,1 | 1,18 | 147 145 € |
@@ -663,26 +663,26 @@ commise sur ce projet, et chacune a changé quelque chose dans le code.
 
 ## Un chiffre juste n'est pas un chiffre vrai
 
-Le taux de réadmission a d'abord affiché **59 %**. La requête était correcte, la
+Le taux de réadmission a d'abord affiché 59 %. La requête était correcte, la
 formule aussi : elle comptait comme des retours des séjours qui se
-**chevauchaient**, donc séparés d'un nombre de jours négatif. Aucun test ne
+chevauchaient, donc séparés d'un nombre de jours négatif. Aucun test ne
 pouvait le voir — il fallait regarder les lignes. Le taux est tombé à 5,4 % une
 fois la définition corrigée.
 
-Plus tard, le recalcul manuel des indicateurs a trouvé **15 séjours rejetés au
-lieu de 68**. Cette fois c'était le recalcul qui avait tort : il comparait des
+Plus tard, le recalcul manuel des indicateurs a trouvé 15 séjours rejetés au
+lieu de 68. Cette fois c'était le recalcul qui avait tort : il comparait des
 dates là où la règle compare des horodatages, laissant passer 53 séjours sortis
 le matin même de leur admission. Le désaccord n'a pas été tranché d'un côté ou
 de l'autre, il a été instruit — et il a localisé une définition qui méritait
 d'être écrite.
 
 > **Ce que nous en retenons.** La seule vérification qui vaut est une mesure
-> **indépendante** : recalculer avec du code qui n'emprunte rien au pipeline. Et
+> indépendante : recalculer avec du code qui n'emprunte rien au pipeline. Et
 > un désaccord entre deux mesures est une information, pas un incident.
 
 ## Un test peut passer sans rien prouver
 
-« Aucune ligne ne viole cette contrainte » est **vrai sur une table vide**.
+« Aucune ligne ne viole cette contrainte » est vrai sur une table vide.
 Plusieurs contrôles d'intégrité passaient ainsi à vide sans que rien ne le
 signale. Ils portent désormais tous une assertion de non-vacuité.
 
@@ -697,13 +697,13 @@ faisaient zéro octet — le moteur était arrêté au moment du relevé.
 ## Ce qui marche chez soi ne marche nulle part ailleurs
 
 Quatre défauts n'ont existé que hors de la machine de développement :
-`requirements.lock` ne portait que les empreintes d'une seule **architecture**,
-`import fcntl` tuait **toutes** les commandes sous Windows, la ligne
+`requirements.lock` ne portait que les empreintes d'une seule architecture,
+`import fcntl` tuait toutes les commandes sous Windows, la ligne
 d'installation du README n'installait pas la commande `eds`, et le mot de passe
 d'exemple `changeme` était refusé par Metabase.
 
-Aucun n'aurait été trouvé par relecture. Tous l'ont été en partant d'un **clone
-nu** et en suivant le README à la lettre, puis en construisant l'image pour
+Aucun n'aurait été trouvé par relecture. Tous l'ont été en partant d'un clone
+nu et en suivant le README à la lettre, puis en construisant l'image pour
 l'autre architecture.
 
 > **Ce que nous en retenons.** Le seul test d'installation qui compte se fait
@@ -711,11 +711,11 @@ l'autre architecture.
 
 ## Certains défauts ne se voient pas dans le code
 
-Trois erreurs de tableau de bord n'ont été trouvées qu'en **relisant les captures
-exportées** : la table des exécutions montrait les runs de la suite de tests, un
+Trois erreurs de tableau de bord n'ont été trouvées qu'en relisant les captures
+exportées : la table des exécutions montrait les runs de la suite de tests, un
 encart promettait une empreinte SHA-256 supprimée depuis longtemps, et la
-volumétrie additionnait les rechargements successifs — **40 848 lignes affichées
-pour 1 776 réelles**, un écart qui grandissait à chaque exécution.
+volumétrie additionnait les rechargements successifs — 40 848 lignes affichées
+pour 1 776 réelles, un écart qui grandissait à chaque exécution.
 
 Les trois requêtes étaient valides. Aucun test ne les regardait, parce qu'aucun
 test ne regardait ce que l'utilisateur voit.
@@ -727,21 +727,21 @@ test ne regardait ce que l'utilisateur voit.
 
 Le commanditaire a signalé que garantir l'idempotence imposait de « parcourir
 toute la base ». La mesure a montré autre chose : le moteur élaguait les
-partitions et lisait un seul granule. Le vrai coût était ailleurs — **756 ms
-pour 300 aller-retours contre 3 ms en une seule requête groupée**, un facteur
+partitions et lisait un seul granule. Le vrai coût était ailleurs — 756 ms
+pour 300 aller-retours contre 3 ms en une seule requête groupée, un facteur
 287.
 
 L'objection était juste dans son intuition — c'était trop cher — et fausse dans
 son diagnostic. Sans la mesure, nous aurions optimisé la mauvaise chose.
 
-> **Ce que nous en retenons.** Une critique se prend au sérieux **et** se mesure.
+> **Ce que nous en retenons.** Une critique se prend au sérieux et se mesure.
 > La mesure déplace souvent le problème sans l'annuler.
 
 ## Écarter une donnée est une décision, jamais une hygiène
 
 68 séjours portaient une date de sortie antérieure à leur admission — des fautes
-de frappe de quelques heures. Les écarter emportait **127 diagnostics posés par
-un médecin, 528 relevés au chevet du patient, et 51 patients** qui n'avaient que
+de frappe de quelques heures. Les écarter emportait 127 diagnostics posés par
+un médecin, 528 relevés au chevet du patient, et 51 patients qui n'avaient que
 ce séjour.
 
 La correction n'a pas été de tout garder, mais de séparer ce qui est faux de ce
@@ -755,7 +755,7 @@ diagnostic reste vrai quand la date du séjour ne l'est pas.
 ## Ce qu'on cesse de mesurer disparaît
 
 Deux contrôles affichent zéro sur le jeu de données actuel. Ils ont pourtant
-mesuré **53,7 % de séjours chevauchants et 14,4 % de modes de sortie manquants**
+mesuré 53,7 % de séjours chevauchants et 14,4 % de modes de sortie manquants
 sur la livraison précédente — et c'est cette mesure qui a permis de le dire au
 CHU.
 

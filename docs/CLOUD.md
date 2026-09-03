@@ -3,7 +3,7 @@
 CHU · Entrepôt de Données de Santé · Partie 3 — hébergement
 
 Ce chapitre décrit l'infrastructure cible, ce qu'elle change au projet, et
-surtout ce qu'elle **ne** change pas. Le code correspondant est dans `infra/`,
+surtout ce qu'elle ne change pas. Le code correspondant est dans `infra/`,
 et se vérifie sans compte cloud par `make infra`.
 
 - [1. Pourquoi le HDS commande tout](#1-pourquoi-le-hds-commande-tout)
@@ -21,10 +21,10 @@ et se vérifie sans compte cloud par `make infra`.
 ## 1. Pourquoi le HDS commande tout
 
 Héberger des données de santé à caractère personnel pour le compte d'un
-établissement impose, en France, de passer par un **hébergeur certifié HDS**
+établissement impose, en France, de passer par un hébergeur certifié HDS
 (article L1111-8 du Code de la santé publique). Ce n'est pas une exigence
 d'infrastructure parmi d'autres : c'est celle qui élimine d'emblée la plupart
-des offres, et qui doit donc être tranchée **avant** tout choix technique.
+des offres, et qui doit donc être tranchée avant tout choix technique.
 
 Trois conséquences en découlent, et elles se lisent directement dans `infra/` :
 
@@ -50,12 +50,12 @@ protection que l'entrepôt.
 ### Ce que la démonstration ne peut pas tenir : la région
 
 Ce garde-fou a immédiatement produit son effet, et pas celui qu'on attendait :
-**il nous a interdit de déployer**.
+il nous a interdit de déployer.
 
 La souscription « Azure for Students » qui porte la démonstration applique une
 politique `sys.regionrestriction` — « Allowed resource deployment regions » — qui
 n'autorise que cinq régions : `germanywestcentral`, `spaincentral`,
-`polandcentral`, `uaenorth` et `swedencentral`. **Aucune région française.**
+`polandcentral`, `uaenorth` et `swedencentral`. Aucune région française.
 Toute création en France est refusée par Azure lui-même :
 
 ```
@@ -73,21 +73,21 @@ Des cinq régions permises, une seule était utilisable :
 | `spaincentral` | Tous les gabarits en `NotAvailableForSubscription`. |
 | `germanywestcentral` | Aucun gabarit de la famille B. |
 | `polandcentral` | Non retenue, plus éloignée à service égal. |
-| `swedencentral` | `Standard_B2s_v2` disponible, 6 vCPU de quota. **Retenue.** |
+| `swedencentral` | `Standard_B2s_v2` disponible, 6 vCPU de quota. Retenue. |
 
-La démonstration se déploie donc à **Stockholm**, et l'écart tient en une ligne,
+La démonstration se déploie donc à Stockholm, et l'écart tient en une ligne,
 dans `infra/terraform/terraform.tfvars`, entourée du raisonnement ci-dessus.
 
 Il faut être précis sur ce qui est perdu et ce qui ne l'est pas. Stockholm est
-dans l'EEE : **aucun transfert hors Union**, le RGPD reste tenu. Ce qui tombe,
-c'est la **certification HDS**, dont le périmètre se limite aux deux régions
+dans l'EEE : aucun transfert hors Union, le RGPD reste tenu. Ce qui tombe,
+c'est la certification HDS, dont le périmètre se limite aux deux régions
 françaises. Sur les données fictives du sujet, l'écart est sans conséquence. Sur
 de vraies données de patients, il serait rédhibitoire — et c'est exactement ce
 que la seconde validation refuse dès que l'environnement passe en production.
 
 Cela mérite d'être dit franchement, parce que c'est la leçon la plus utile de ce
-chapitre : **la contrainte réglementaire s'est révélée plus difficile à satisfaire
-que la contrainte technique.** Monter un cluster Kubernetes ne pose pas de
+chapitre : la contrainte réglementaire s'est révélée plus difficile à satisfaire
+que la contrainte technique. Monter un cluster Kubernetes ne pose pas de
 problème ; le monter au bon endroit, si. Un CHU qui contractualiserait pour de
 vrai rencontrerait la même difficulté sous une autre forme — non pas une
 politique de souscription étudiante, mais la disponibilité réelle des services
@@ -133,24 +133,24 @@ flowchart TB
 
 **ClickHouse n'a aucune adresse publique.** Il n'est joignable que depuis
 l'intérieur du cluster, et seulement par Metabase et le pipeline — une politique
-réseau le garantit indépendamment des mots de passe. C'est une **troisième
-barrière** de cloisonnement, qui s'ajoute aux comptes du moteur et aux
+réseau le garantit indépendamment des mots de passe. C'est une troisième
+barrière de cloisonnement, qui s'ajoute aux comptes du moteur et aux
 collections Metabase.
 ---
 
 ## 3. La zone de dépôt
 
-C'est l'endroit **le plus sensible de tout le système**, et il mérite d'être
+C'est l'endroit le plus sensible de tout le système, et il mérite d'être
 traité à part.
 
 Le CHU y dépose ses exports quotidiens, qui portent `nir`, `nom`, `prenom` et
-`birth_date` **en clair**. C'est le seul endroit de la chaîne où une
+`birth_date` en clair. C'est le seul endroit de la chaîne où une
 ré-identification est possible : tout ce qui se trouve en aval a déjà traversé
 la pseudonymisation à l'entrée du lake.
 
 **Et c'est précisément ce qui rend l'ensemble défendable.** Puisque l'identité
 disparaît dès la première zone que nous maîtrisons, sécuriser tout l'entrepôt
-revient à sécuriser **un seul endroit**. Le reste — bronze, silver, gold, les
+revient à sécuriser un seul endroit. Le reste — bronze, silver, gold, les
 tableaux de bord, les sauvegardes — ne contient rien d'identifiant, et une fuite
 y serait sans gravité au sens du RGPD.
 
@@ -158,8 +158,8 @@ y serait sans gravité au sens du RGPD.
 
 | schéma | ce que ça implique |
 |---|---|
-| **Le CHU reste chez lui, l'EDS vient chercher** | l'hôpital exporte sur son propre réseau, le pipeline lit à travers une liaison privée. Aucune donnée identifiante ne transite par l'internet public, et l'hôpital garde la main sur ce qu'il expose. |
-| **Le CHU dépose dans une zone d'atterrissage cloud** | un partage ou un conteneur dédié, sans accès public, dans le périmètre HDS. Plus simple à exploiter, mais les identités vivent désormais chez l'hébergeur. |
+| Le CHU reste chez lui, l'EDS vient chercher | l'hôpital exporte sur son propre réseau, le pipeline lit à travers une liaison privée. Aucune donnée identifiante ne transite par l'internet public, et l'hôpital garde la main sur ce qu'il expose. |
+| Le CHU dépose dans une zone d'atterrissage cloud | un partage ou un conteneur dédié, sans accès public, dans le périmètre HDS. Plus simple à exploiter, mais les identités vivent désormais chez l'hébergeur. |
 
 Le premier est le plus courant en France, et le plus facile à défendre devant un
 délégué à la protection des données. Le second est celui que cette
@@ -167,20 +167,20 @@ infrastructure décrit, parce qu'elle doit pouvoir se déployer seule.
 
 ### Un compte de stockage séparé, et pourquoi
 
-`infra/terraform/zone_de_depot.tf` crée un compte **distinct** de celui du lake.
+`infra/terraform/zone_de_depot.tf` crée un compte distinct de celui du lake.
 Ce n'est pas de la coquetterie : qui peut lire l'entrepôt ne doit pas pouvoir
 lire les identités, et une séparation des droits n'a de sens que si elle porte
 sur des objets distincts. Un simple dossier dans le compte du lake partagerait
 ses droits.
 
-Le partage est monté **en lecture seule** par le pipeline, avec des permissions
+Le partage est monté en lecture seule par le pipeline, avec des permissions
 qui interdisent l'écriture jusque dans le système de fichiers du conteneur —
 `dir_mode=0555, file_mode=0444`. Le conteneur ne peut pas altérer la source,
 même par erreur de programmation.
 
 ### La rétention doit être COURTE, et c'est contre-intuitif
 
-Le lake conserve dix ans. La zone de dépôt devrait conserver **quelques jours**.
+Le lake conserve dix ans. La zone de dépôt devrait conserver quelques jours.
 
 Une fois le fichier ingéré et pseudonymisé, le brut n'a plus de raison
 d'exister : le garder revient à conserver des identités dont on n'a plus
@@ -211,7 +211,7 @@ C'est la partie la plus importante du chapitre, et elle se démontre.
 
 **Toute la configuration tient dans 18 variables d'environnement.** Le code ne
 contient aucune adresse en dur : les deux occurrences de `localhost` sont des
-**valeurs par défaut** de `os.getenv`, remplacées dès qu'une variable est
+valeurs par défaut de `os.getenv`, remplacées dès qu'une variable est
 fournie.
 
 **La portabilité est déjà éprouvée, tous les jours.** Le conteneur `scheduler`
@@ -226,7 +226,7 @@ code ne distingue ce cas du cas cloud.
 | Restitution | `METABASE_URL` |
 | Secrets | injectés par Kubernetes au lieu d'un fichier `.env` |
 | Ordonnancement | un `CronJob` au lieu d'APScheduler |
-| **Code Python** | **rien** |
+| Code Python | rien |
 
 `CLICKHOUSE_SECURE` bascule la liaison en TLS sans toucher au code : le client
 lit cette variable et adapte son transport.
@@ -255,7 +255,7 @@ En local, Metabase garde son état dans un H2 posé sur un volume. C'est
 acceptable pour une démonstration, pas sur Kubernetes où un pod peut être
 déplacé à tout moment : H2 ne supporte ni le déplacement à chaud ni deux
 écrivains, et la panne se manifeste par une base corrompue plutôt que par une
-erreur claire. L'état passe donc sur une **base PostgreSQL managée**.
+erreur claire. L'état passe donc sur une base PostgreSQL managée.
 
 Cette base ne contient aucune donnée de santé — seulement des définitions de
 cartes, des comptes et des permissions. Le chiffrement au repos y est activé
@@ -264,9 +264,9 @@ même protection que l'entrepôt.
 
 ### Les journaux sont bornés
 
-Sur l'installation locale, les journaux de ClickHouse pesaient **487 Mio pour
-155 Mio de données** — conséquence de centaines d'exécutions. Sur le cluster ils
-vivent sur un volume **éphémère borné à 2 Gio** : ils ne sont pas précieux, et
+Sur l'installation locale, les journaux de ClickHouse pesaient 487 Mio pour
+155 Mio de données — conséquence de centaines d'exécutions. Sur le cluster ils
+vivent sur un volume éphémère borné à 2 Gio : ils ne sont pas précieux, et
 sans borne ils rempliraient le disque avant l'entrepôt.
 
 ### Les secrets quittent le fichier `.env`
@@ -275,15 +275,24 @@ Le dossier annonçait cette limite : « en production, ce sel appartient à un
 coffre, pas à un fichier `.env` ». C'est fait — les secrets sont déclarés dans
 le gestionnaire, et injectés dans les pods.
 
-Ils sont **déclarés vides** par Terraform et remplis en dehors de lui. La raison
-tient en une phrase : le fichier d'état de Terraform contient en clair tout ce
-qu'on lui confie. Y écrire le sel de pseudonymisation reviendrait à le publier.
+Sept d'entre eux ne sont pas créés par Terraform du tout : il se contente de
+les nommer, dans une sortie `secrets_a_deposer`, et `infra/deposer-secrets.sh`
+les tire au sort puis les dépose. La raison tient en une phrase : le fichier
+d'état de Terraform contient en clair tout ce qu'on lui confie. Y écrire le sel
+de pseudonymisation reviendrait à le publier.
 
-Une exception est assumée, parce qu'elle est inévitable : le mot de passe de la
-base managée, que Terraform **doit** fournir à la création. Il figure donc dans
-l'état, et la conséquence est tirée plutôt qu'ignorée — **l'état lui-même est un
-secret**, il ne va pas dans git, il vit dans un stockage distant chiffré, et son
-accès se traite comme celui de la base.
+Deux exceptions sont assumées, parce qu'elles sont inévitables. Le mot de passe
+de la base managée, que Terraform doit fournir à la création. Et la clé du
+compte de stockage de la zone de dépôt, qu'il lit pour que le pilote CSI puisse
+monter le partage. Tous deux figurent donc dans l'état, et la conséquence est
+tirée plutôt qu'ignorée — l'état lui-même est un secret, il ne va pas dans git,
+il vit dans un stockage distant chiffré, et son accès se traite comme celui de
+la base.
+
+Ces secrets sont neufs, et ne reprennent pas ceux du poste. Deux environnements
+qui partagent un mot de passe n'en font plus qu'un, et un sel de
+pseudonymisation commun rendrait les deux entrepôts corrélables — ce qui
+ruinerait précisément la protection qu'il apporte.
 
 ## 6. Comment cette infrastructure se vérifie
 
@@ -296,13 +305,13 @@ Trois niveaux, du plus accessible au plus coûteux.
 make infra
 ```
 
-`terraform validate` confronte la configuration au **schéma réel du
-fournisseur** : noms de ressources, attributs, types, blocs imbriqués.
+`terraform validate` confronte la configuration au schéma réel du
+fournisseur : noms de ressources, attributs, types, blocs imbriqués.
 `kubeconform` confronte les manifestes aux schémas de l'API Kubernetes. Ni l'un
 ni l'autre ne demande de compte, et le second tourne en conteneur — rien à
 installer.
 
-Cette vérification **mord**, et cela a été éprouvé : un attribut Terraform mal
+Cette vérification mord, et cela a été éprouvé : un attribut Terraform mal
 nommé et un `schedule` mal orthographié dans le `CronJob` font tomber la cible,
 avec un message qui désigne la ligne.
 
@@ -313,32 +322,39 @@ validation en contrôle la syntaxe, pas l'existence.
 ### Niveau 2 — un plan, sans rien créer
 
 `terraform plan` demande un compte mais ne crée aucune ressource et ne coûte
-rien. Il confronte la configuration à l'**API**, donc il attrape précisément ce
+rien. Il confronte la configuration à l'API, donc il attrape précisément ce
 que le niveau 1 laisse passer : gabarits inexistants, noms de rôles erronés,
 quotas insuffisants.
 
 **Exécuté sur la souscription du projet**, le plan aboutit :
 
 ```
-Plan: 19 to add, 0 to change, 0 to destroy.
+Plan: 20 to add, 0 to change, 0 to destroy.
 ```
 
 | ressource | rôle |
 |---|---|
 | `resource_group` | tout l'entrepôt y vit, rien ailleurs |
-| `virtual_network` + `subnet` | le réseau privé |
+| `virtual_network` + 2 × `subnet` | le réseau privé, dont un sous-réseau délégué à la base |
 | `kubernetes_cluster` | 2 nœuds, 4 vCPU sur les 6 du quota |
 | `container_registry` | l'image du pipeline |
-| `key_vault` + `key_vault_secret` | le coffre, et le seul secret que Terraform connaisse |
-| `storage_account` + `share` + secret | **la zone de dépôt, sur un compte séparé** |
-| `postgresql_flexible_server` + `database` | l'état de Metabase |
+| `key_vault` + 2 × `key_vault_secret` | le coffre, et les seuls secrets que Terraform connaisse |
+| `storage_account` + `share` | la zone de dépôt, sur un compte séparé |
+| `postgresql_flexible_server` + `database` + `configuration` | l'état de Metabase |
+| `private_dns_zone` + `virtual_network_link` | la résolution du nom privé de la base |
 | 3 × `role_assignment` | moindre privilège : lire le coffre, tirer l'image |
 | `random_password` | le mot de passe de la base, généré |
 
 Ce que ce plan démontre et que la validation hors ligne ne pouvait pas : les
 noms de rôles — `Key Vault Secrets User`, `AcrPull` — existent, le gabarit
-`Standard_B2s_v2` est disponible dans la région, et la souscription accepte
-chacune de ces créations.
+`Standard_B2s_v2` est disponible dans la région retenue, et la souscription
+accepte chacune de ces créations.
+
+Ce qu'il ne démontre pas, et c'est instructif : le plan aboutissait tout aussi
+bien en `francecentral`, où pas une ressource n'a pu être créée. Une politique
+de souscription ne s'évalue qu'à l'écriture. Le niveau 2 attrape ce que le
+niveau 1 laisse passer, mais il laisse passer à son tour ce que seul le
+niveau 3 révèle.
 
 ### Niveau 3 — déployer, capturer, détruire
 
@@ -362,7 +378,7 @@ région parce qu'elles n'hébergent aucune donnée.
 ![L'entrepôt en fonctionnement](img/cloud-cluster.png)
 
 Les deux volumes sont des disques managés — celui de ClickHouse et celui du
-lake. Les services sont en `ClusterIP` : **aucune adresse externe**, ni pour le
+lake. Les services sont en `ClusterIP` : aucune adresse externe, ni pour le
 moteur ni pour la restitution. Le refus par défaut porte sur tous les pods
 (`<none>` en sélecteur) et deux règles seulement rouvrent le nécessaire.
 
@@ -371,7 +387,7 @@ les chiffres :
 
 ![La chaîne complète sur le cluster](img/cloud-pipeline.png)
 
-Les 92 dépôts sont **vus puis ignorés** à l'étape lake : ils ont déjà été
+Les 92 dépôts sont vus puis ignorés à l'étape lake : ils ont déjà été
 publiés, rien n'est réécrit. Seules les couches reconstruites à chaque passage —
 silver et gold — refont leur travail. La chaîne entière tient en 2,78 secondes.
 
@@ -397,8 +413,8 @@ tient pas au `docker-compose`, elle tient aux droits eux-mêmes.
 
 #### Ce que ces images établissent, et ce qu'elles n'établissent pas
 
-Il faut être honnête sur leur valeur : **aucune capture ne prouve qu'un
-déploiement a eu lieu.** Une image de `kubectl get pods` est du texte, et du
+Il faut être honnête sur leur valeur : aucune capture ne prouve qu'un
+déploiement a eu lieu. Une image de `kubectl get pods` est du texte, et du
 texte se fabrique. Nous n'invoquons donc pas ces quatre pièces comme des
 preuves, et nous avons écarté pour la même raison une capture d'un tableau de
 bord servi par le cluster : prise à travers un tunnel, elle affiche
@@ -439,9 +455,9 @@ virtuel existe ; elles ne viennent pas de notre description et Azure les recrée
 de toute façon.
 
 **Mais `terraform destroy` n'avait pas tout détruit**, et c'est le dernier
-enseignement de ce chapitre. Azure Key Vault applique une **suppression
-réversible obligatoire** : le coffre restait récupérable pendant quatre-vingt-dix
-jours, avec ses sept secrets — dont le sel de pseudonymisation. Il a fallu une
+enseignement de ce chapitre. Azure Key Vault applique une suppression
+réversible obligatoire : le coffre restait récupérable pendant quatre-vingt-dix
+jours, avec ses neuf secrets — dont le sel de pseudonymisation. Il a fallu une
 purge explicite :
 
 ```
@@ -451,7 +467,7 @@ az keyvault purge --name kv-edschu-recette --location swedencentral
 Cette mécanique met deux exigences en tension, et le projet doit choisir laquelle
 prime. La suppression réversible protège d'une destruction accidentelle, ce qui
 est manifestement souhaitable pour un coffre : Azure ne permet d'ailleurs plus
-de la désactiver. Mais le RGPD porte un **droit à l'effacement**, et un sel de
+de la désactiver. Mais le RGPD porte un droit à l'effacement, et un sel de
 pseudonymisation qui survit trois mois à la destruction de l'entrepôt qu'il
 servait est précisément ce qu'un délégué à la protection des données relèverait.
 
@@ -459,29 +475,29 @@ Le curseur se règle par `purge_protection_enabled`. Nous l'avons laissé à
 `false`, ce qui rend la purge possible — le bon choix pour une infrastructure de
 démonstration qui doit pouvoir disparaître entièrement. En production,
 l'inclination naturelle serait de le passer à `true` pour se prémunir d'une
-suppression malveillante ; il faut alors savoir que **la purge devient impossible
-pendant quatre-vingt-dix jours**, et que la procédure d'effacement d'un patient
+suppression malveillante ; il faut alors savoir que la purge devient impossible
+pendant quatre-vingt-dix jours, et que la procédure d'effacement d'un patient
 ne peut donc pas reposer sur la destruction du coffre. Elle doit reposer sur la
 rotation du sel, qui rend les pseudonymes anciens irréconciliables — ce que
 `docs/EXPLOITATION.md` décrit déjà comme une opération lourde, et qui trouve ici
 sa justification réglementaire.
 
-C'est une conclusion inattendue pour un chapitre d'infrastructure : **le geste
+C'est une conclusion inattendue pour un chapitre d'infrastructure : le geste
 qui protège les données et celui qui les efface sont le même geste, réglé en
-sens contraire.**
+sens contraire.
 
 ### Ce que le déploiement a révélé, et que rien d'autre n'aurait trouvé
 
 Les niveaux 1 et 2 déclaraient l'infrastructure valide. Elle l'était, au sens où
 Terraform et kubeconform l'entendent. Le déploiement réel a pourtant mis au jour
-**cinq défauts**, tous invisibles avant lui. Ils méritent d'être listés, parce
+cinq défauts, tous invisibles avant lui. Ils méritent d'être listés, parce
 qu'ils délimitent exactement ce qu'une validation hors ligne peut promettre.
 
 **1. Une clé de secret qui n'était pas un identifiant.** Le secret `eds-secrets`
 était lu de deux façons incompatibles : par `envFrom`, qui transforme chaque clé
 en variable d'environnement, et par `secretKeyRef`, qui accepte n'importe quel
 nom. Les clés étaient nommées `clickhouse-admin-password` — parfait pour le
-second usage, invalide pour le premier. **Kubernetes n'émet aucune erreur** : il
+second usage, invalide pour le premier. Kubernetes n'émet aucune erreur : il
 ignore silencieusement les clés qui ne sont pas des identifiants. Le pipeline
 aurait démarré sans un seul secret. Les clés portent désormais le nom exact des
 variables, et ce qui n'est pas secret est passé dans un `ConfigMap` distinct.
@@ -496,15 +512,15 @@ pipeline l'avait oublié. Aucun schéma d'API ne peut détecter cela — le mani
 créé en accès public sans aucune règle de pare-feu : joignable par personne, et
 exposé en principe. Deux défauts contradictoires dans la même ligne. La base est
 passée en accès privé — sous-réseau délégué et zone DNS privée — ce qui n'est pas
-un durcissement cosmétique : cette base porte **la liste des comptes qui accèdent
-à l'entrepôt**, et sa publication contredisait l'argument de tout le reste. Azure
+un durcissement cosmétique : cette base porte la liste des comptes qui accèdent
+à l'entrepôt, et sa publication contredisait l'argument de tout le reste. Azure
 a d'ailleurs refusé la configuration intermédiaire, exigeant que l'accès public
 soit explicitement désactivé plutôt que déduit.
 
 **4. Une extension non autorisée.** Metabase pose l'extension `citext` au premier
 démarrage. Azure n'autorise aucune extension par défaut. C'est une différence
-entre un PostgreSQL managé et un PostgreSQL en conteneur que **le développement
-local ne peut pas révéler**, par construction.
+entre un PostgreSQL managé et un PostgreSQL en conteneur que le développement
+local ne peut pas révéler, par construction.
 
 **5. Une dépendance circulaire entre les trois installations.** `eds metabase` a
 besoin des comptes ClickHouse que crée `eds acces` ; la vérification du
@@ -512,11 +528,11 @@ cloisonnement Metabase par `eds acces` a besoin des comptes que crée
 `eds metabase`. À la première installation, `eds acces` signale honnêtement
 `cloisonnement Metabase non vérifié` et le second passage donne les 41 contrôles.
 Ce n'est pas un défaut de code — la commande dégrade proprement — mais une
-propriété de la séquence, qu'il faut connaître : **l'installation demande deux
-passages de `eds acces`**, jamais un seul.
+propriété de la séquence, qu'il faut connaître : l'installation demande deux
+passages de `eds acces`, jamais un seul.
 
-La leçon tient en une phrase : **une infrastructure validée n'est pas une
-infrastructure éprouvée.** Les trois premiers défauts partagent un trait commun —
+La leçon tient en une phrase : une infrastructure validée n'est pas une
+infrastructure éprouvée. Les trois premiers défauts partagent un trait commun —
 ils ne produisent pas d'erreur au déploiement, mais un silence, un délai
 d'attente ou un refus de permission au premier usage réel. C'est précisément la
 catégorie de panne qu'un `terraform validate` ne verra jamais, et c'est pourquoi
@@ -524,7 +540,7 @@ le niveau 3 n'est pas une formalité de fin de parcours.
 
 ## 7. Le plan de migration
 
-Chaque étape est **réversible** et laisse l'installation locale intacte.
+Chaque étape est réversible et laisse l'installation locale intacte.
 
 | # | étape | vérification |
 |---|---|---|
@@ -534,7 +550,7 @@ Chaque étape est **réversible** et laisse l'installation locale intacte.
 | 4 | Construire et pousser l'image en `linux/amd64` | `docker pull` depuis le cluster |
 | 5 | `infra/secrets-kubernetes.sh` — porter les secrets du coffre au cluster | 3 secrets dans l'espace de noms |
 | 6 | Appliquer les manifestes, dans l'ordre | `kubectl get pods` |
-| 7 | `eds init`, `eds acces`, `eds metabase`, **puis `eds acces` à nouveau** | 41 contrôles de cloisonnement |
+| 7 | `eds init`, `eds acces`, `eds metabase`, puis `eds acces` à nouveau | 41 contrôles de cloisonnement |
 | 8 | Charger un premier dépôt, comparer les indicateurs au local | les sept KPI identiques |
 | 9 | Activer le `CronJob` | une exécution nocturne journalisée |
 
@@ -546,21 +562,21 @@ différence de données.
 
 ## 8. Ce que cela coûte
 
-Les tarifs changent : ce chapitre donne la **structure** du coût plutôt que des
+Les tarifs changent : ce chapitre donne la structure du coût plutôt que des
 montants qui seraient périmés à la lecture.
 
 | poste | ce qui le détermine | ordre |
 |---|---|---|
-| Nœuds Kubernetes | 2 nœuds en permanence | **dominant** |
+| Nœuds Kubernetes | 2 nœuds en permanence | dominant |
 | Base managée | un nœud, doublé en production | notable |
 | Stockage | disque du lake et partage de dépôt — 3,3 Mo aujourd'hui | négligeable |
 | Gestionnaire de secrets | quelques secrets | négligeable |
 | Sortie réseau | consultation des tableaux de bord | faible |
 
 **Le constat le plus utile n'est pas un montant.** Le pipeline s'exécute en
-**une seconde et demie par jour** : son propre calcul est gratuit à toute échelle
-raisonnable. Ce qui coûte, c'est de **garder le moteur et la restitution
-disponibles** le reste du temps — soit 99,998 % d'un cluster dimensionné pour
+une seconde et demie par jour : son propre calcul est gratuit à toute échelle
+raisonnable. Ce qui coûte, c'est de garder le moteur et la restitution
+disponibles le reste du temps — soit 99,998 % d'un cluster dimensionné pour
 une charge qui n'arrive jamais.
 
 Trois pistes en découlent, par ordre de gain :
@@ -577,8 +593,8 @@ Trois pistes en découlent, par ordre de gain :
 
 ### Porter le lake sur stockage objet — non fait, et pourquoi
 
-**Aujourd'hui le lake n'est PAS sur du stockage objet.** Il vit sur un **disque
-managé** attaché au cluster : un vrai système de fichiers, où `eds/lake.py` fonctionne sans modification. C'est ce qui
+**Aujourd'hui le lake n'est PAS sur du stockage objet.** Il vit sur un disque
+managé attaché au cluster : un vrai système de fichiers, où `eds/lake.py` fonctionne sans modification. C'est ce qui
 permet de déployer sans toucher au code.
 
 **Nous n'avons délibérément pas provisionné de stockage objet inutilisé.** Une
@@ -588,14 +604,14 @@ laisserait croire que le lake y vit.
 
 **Ce choix a une conséquence qu'il faut assumer.** Un disque managé se monte en
 accès exclusif : il n'est attaché qu'à un nœud à la fois. Le pipeline est donc
-**épinglé à un nœud**, et la perte de ce nœud rend le lake indisponible jusqu'à
+épinglé à un nœud, et la perte de ce nœud rend le lake indisponible jusqu'à
 ce que le volume soit rattaché ailleurs.
 
 À la volumétrie observée — 3,2 Mo de lake — c'est un risque acceptable : le lake
 se reconstruit intégralement depuis la source du CHU, qui vit ailleurs, et la
 reconstruction prend une seconde et demie. Mais c'est bien la raison principale
 de passer au stockage objet le jour venu, davantage que la durabilité ou le
-coût : **découpler le pipeline d'un nœud**.
+coût : découpler le pipeline d'un nœud.
 
 #### Pourquoi ne pas simplement monter un conteneur objet comme un disque
 
@@ -603,47 +619,47 @@ C'est la fausse bonne idée, et elle mérite d'être écartée explicitement. Az
 sait présenter un conteneur objet comme un système de fichiers ; le pipeline
 tournerait alors sans une ligne de changement.
 
-Il **casserait pourtant silencieusement** la garantie sur laquelle repose le
+Il casserait pourtant silencieusement la garantie sur laquelle repose le
 lake. Ces passerelles émulent le renommage par une copie suivie d'une
-suppression — donc **pas atomiquement**. Un fichier pourrait apparaître sous son
+suppression — donc pas atomiquement. Un fichier pourrait apparaître sous son
 nom définitif alors que sa copie n'est pas terminée, et `est_publie()`
 conclurait à tort qu'il est complet. Le pipeline ne lèverait aucune erreur : il
 chargerait un fichier tronqué.
 
 Une garantie que l'on croit tenir et qui ne tient plus est pire qu'une garantie
-absente. Le portage doit donc passer par le **client objet**, qui rend
+absente. Le portage doit donc passer par le client objet, qui rend
 l'atomicité nativement — et non par un montage qui la simule.
 
 #### Le jour où le portage aura lieu, les `.partiel` disparaîtront
 
-Ce qui suit décrit une situation **future**. Tant que le lake est un disque, le
+Ce qui suit décrit une situation future. Tant que le lake est un disque, le
 mécanisme actuel reste en place et reste nécessaire.
 
-Aujourd'hui, une copie s'écrit sous `<nom>.partiel` puis est **renommée**. Le
+Aujourd'hui, une copie s'écrit sous `<nom>.partiel` puis est renommée. Le
 renommage étant atomique, un fichier présent sous son nom définitif est
 forcément complet, et une copie interrompue laisse un résidu que `eds lake`
-efface au démarrage. **C'est ce qui tourne, en local comme sur le cluster.**
+efface au démarrage. C'est ce qui tourne, en local comme sur le cluster.
 
 Le jour où le lake passera en stockage objet, cette précaution deviendra
-**inutile** — et c'est une bonne nouvelle, pas une difficulté :
+inutile — et c'est une bonne nouvelle, pas une difficulté :
 
 | | système de fichiers | stockage objet |
 |---|---|---|
-| écriture | visible au fur et à mesure | **invisible jusqu'à la validation** |
+| écriture | visible au fur et à mesure | invisible jusqu'à la validation |
 | publication | renommage atomique | la validation *est* atomique |
-| écriture interrompue | laisse un fichier tronqué | ne laisse **rien de visible** |
+| écriture interrompue | laisse un fichier tronqué | ne laisse rien de visible |
 | résidus à nettoyer | les `.partiel` | aucun |
 
 Un envoi en une requête remplace le blob entièrement : un lecteur voit l'ancien
 ou le nouveau, jamais un état intermédiaire. Un envoi en blocs, pour les gros
-fichiers, dépose des blocs qui **n'apparaissent pas** tant qu'ils ne sont pas
+fichiers, dépose des blocs qui n'apparaissent pas tant qu'ils ne sont pas
 validés, et cette validation est elle aussi atomique. Des blocs jamais validés
 restent invisibles au listage et sont purgés par le fournisseur au bout de sept
 jours.
 
 Autrement dit, la garantie que le lake construit aujourd'hui à la main — *ce qui
-porte son nom définitif est complet* — serait alors **rendue par le stockage
-lui-même**. On écrirait directement sous le nom final, et `nettoyer_residus()`
+porte son nom définitif est complet* — serait alors rendue par le stockage
+lui-même. On écrirait directement sous le nom final, et `nettoyer_residus()`
 n'aurait plus rien à nettoyer.
 
 #### Ce qui reste réellement à faire
