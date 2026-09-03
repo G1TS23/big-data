@@ -75,10 +75,18 @@ spec:
                 claimName: eds-lake
             # Le dépôt du CHU, monté en LECTURE SEULE comme en local : le
             # conteneur ne peut pas altérer la source, même par erreur.
+            #
+            # C'est un partage de fichiers porté par un compte de stockage
+            # SÉPARÉ — la seule zone du système qui contienne des identités en
+            # clair. Voir infra/terraform/zone_de_depot.tf.
             - name: source
-              persistentVolumeClaim:
-                claimName: eds-source
+              csi:
+                driver: file.csi.azure.com
                 readOnly: true
+                volumeAttributes:
+                  shareName: filestorage
+                  secretName: eds-depot
+                  mountOptions: "dir_mode=0555,file_mode=0444,uid=10001,gid=10001,ro"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -91,15 +99,3 @@ spec:
   resources:
     requests:
       storage: 10Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: eds-source
-  namespace: eds
-spec:
-  accessModes: ["ReadWriteOnce"]
-  storageClassName: managed-csi
-  resources:
-    requests:
-      storage: 5Gi

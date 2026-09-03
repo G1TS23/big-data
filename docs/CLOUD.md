@@ -8,12 +8,13 @@ et se vérifie sans compte cloud par `make infra`.
 
 - [1. Pourquoi le HDS commande tout](#1-pourquoi-le-hds-commande-tout)
 - [2. L'architecture cible](#2-larchitecture-cible)
-- [3. Ce qui ne change pas](#3-ce-qui-ne-change-pas)
-- [4. Ce qui change vraiment](#4-ce-qui-change-vraiment)
-- [5. Comment cette infrastructure se vérifie](#5-comment-cette-infrastructure-se-vérifie)
-- [6. Le plan de migration](#6-le-plan-de-migration)
-- [7. Ce que cela coûte](#7-ce-que-cela-coûte)
-- [8. Ce qui reste à faire](#8-ce-qui-reste-à-faire)
+- [3. La zone de dépôt](#3-la-zone-de-dépôt)
+- [4. Ce qui ne change pas](#4-ce-qui-ne-change-pas)
+- [5. Ce qui change vraiment](#5-ce-qui-change-vraiment)
+- [6. Comment cette infrastructure se vérifie](#6-comment-cette-infrastructure-se-vérifie)
+- [7. Le plan de migration](#7-le-plan-de-migration)
+- [8. Ce que cela coûte](#8-ce-que-cela-coûte)
+- [9. Ce qui reste à faire](#9-ce-qui-reste-à-faire)
 
 ---
 
@@ -80,8 +81,77 @@ l'intérieur du cluster, et seulement par Metabase et le pipeline — une politi
 réseau le garantit indépendamment des mots de passe. C'est une **troisième
 barrière** de cloisonnement, qui s'ajoute aux comptes du moteur et aux
 collections Metabase.
+---
 
-## 3. Ce qui ne change pas
+## 3. La zone de dépôt
+
+C'est l'endroit **le plus sensible de tout le système**, et il mérite d'être
+traité à part.
+
+Le CHU y dépose ses exports quotidiens, qui portent `nir`, `nom`, `prenom` et
+`birth_date` **en clair**. C'est le seul endroit de la chaîne où une
+ré-identification est possible : tout ce qui se trouve en aval a déjà traversé
+la pseudonymisation à l'entrée du lake.
+
+**Et c'est précisément ce qui rend l'ensemble défendable.** Puisque l'identité
+disparaît dès la première zone que nous maîtrisons, sécuriser tout l'entrepôt
+revient à sécuriser **un seul endroit**. Le reste — bronze, silver, gold, les
+tableaux de bord, les sauvegardes — ne contient rien d'identifiant, et une fuite
+y serait sans gravité au sens du RGPD.
+
+### Où le CHU dépose, en pratique
+
+| schéma | ce que ça implique |
+|---|---|
+| **Le CHU reste chez lui, l'EDS vient chercher** | l'hôpital exporte sur son propre réseau, le pipeline lit à travers une liaison privée. Aucune donnée identifiante ne transite par l'internet public, et l'hôpital garde la main sur ce qu'il expose. |
+| **Le CHU dépose dans une zone d'atterrissage cloud** | un partage ou un conteneur dédié, sans accès public, dans le périmètre HDS. Plus simple à exploiter, mais les identités vivent désormais chez l'hébergeur. |
+
+Le premier est le plus courant en France, et le plus facile à défendre devant un
+délégué à la protection des données. Le second est celui que cette
+infrastructure décrit, parce qu'elle doit pouvoir se déployer seule.
+
+### Un compte de stockage séparé, et pourquoi
+
+`infra/terraform/zone_de_depot.tf` crée un compte **distinct** de celui du lake.
+Ce n'est pas de la coquetterie : qui peut lire l'entrepôt ne doit pas pouvoir
+lire les identités, et une séparation des droits n'a de sens que si elle porte
+sur des objets distincts. Un simple dossier dans le compte du lake partagerait
+ses droits.
+
+Le partage est monté **en lecture seule** par le pipeline, avec des permissions
+qui interdisent l'écriture jusque dans le système de fichiers du conteneur —
+`dir_mode=0555, file_mode=0444`. Le conteneur ne peut pas altérer la source,
+même par erreur de programmation.
+
+### La rétention doit être COURTE, et c'est contre-intuitif
+
+Le lake conserve dix ans. La zone de dépôt devrait conserver **quelques jours**.
+
+Une fois le fichier ingéré et pseudonymisé, le brut n'a plus de raison
+d'exister : le garder revient à conserver des identités dont on n'a plus
+l'usage, ce que le principe de minimisation interdit. C'est l'inverse du
+réflexe habituel, qui pousse à tout garder « au cas où ».
+
+**Cette purge n'est pas implémentée**, et il faut le dire. Azure Files n'offre
+pas de règle de cycle de vie — contrairement au stockage objet, où le lake en a
+une, déclarative. La purge doit donc être portée par une tâche planifiée, qui
+reste à écrire. C'est une dette assumée : la nommer ici, et dans le fichier
+Terraform, évite qu'elle se perde.
+
+Une variante mérite d'être étudiée en production : un conteneur objet avec SFTP
+activé plutôt qu'un partage SMB. Le CHU y pousserait par SFTP, et la rétention
+redeviendrait déclarative — au prix d'un montage plus complexe côté Kubernetes.
+
+### Ce que cette zone impose par ailleurs
+
+- **Tracer chaque lecture.** C'est le seul endroit où la ré-identification est
+  possible ; savoir qui y accède, et quand, fait partie du dispositif.
+- **Ne jamais l'exposer publiquement.** Ni le compte, ni le partage.
+- **La traiter comme un périmètre à part** dans l'analyse d'impact : c'est la
+  zone qui porte le risque, les autres n'en portent presque plus.
+
+
+## 4. Ce qui ne change pas
 
 C'est la partie la plus importante du chapitre, et elle se démontre.
 
@@ -107,7 +177,7 @@ code ne distingue ce cas du cas cloud.
 `CLICKHOUSE_SECURE` bascule la liaison en TLS sans toucher au code : le client
 lit cette variable et adapte son transport.
 
-## 4. Ce qui change vraiment
+## 5. Ce qui change vraiment
 
 ### L'ordonnancement passe au cluster
 
@@ -161,7 +231,7 @@ l'état, et la conséquence est tirée plutôt qu'ignorée — **l'état lui-mê
 secret**, il ne va pas dans git, il vit dans un stockage distant chiffré, et son
 accès se traite comme celui de la base.
 
-## 5. Comment cette infrastructure se vérifie
+## 6. Comment cette infrastructure se vérifie
 
 Une infrastructure décrite mais invérifiable ne vaut guère mieux qu'un schéma.
 Trois niveaux, du plus accessible au plus coûteux.
@@ -196,7 +266,7 @@ quotas insuffisants.
 **Exécuté sur la souscription du projet**, le plan aboutit :
 
 ```
-Plan: 16 to add, 0 to change, 0 to destroy.
+Plan: 19 to add, 0 to change, 0 to destroy.
 ```
 
 | ressource | rôle |
@@ -206,7 +276,8 @@ Plan: 16 to add, 0 to change, 0 to destroy.
 | `kubernetes_cluster` | 2 nœuds, 4 vCPU sur les 6 du quota |
 | `container_registry` | l'image du pipeline |
 | `key_vault` + `key_vault_secret` | le coffre, et le seul secret que Terraform connaisse |
-| `storage_account` + `container` + `management_policy` | le lake, versionné, avec sa rétention |
+| `storage_account` + `container` + `management_policy` | le lake, versionné, avec sa rétention de dix ans |
+| `storage_account` + `share` + secret | **la zone de dépôt, sur un compte séparé** |
 | `postgresql_flexible_server` + `database` | l'état de Metabase |
 | 3 × `role_assignment` | moindre privilège : lire le coffre, tirer l'image |
 | `random_password` | le mot de passe de la base, généré |
@@ -227,7 +298,7 @@ aucun disque portant des données de santé.
 > démonstration portant des données de santé se détruit après usage ; c'est ce
 > qu'on ferait pour un vrai CHU, et c'est ce que nous recommandons.
 
-## 6. Le plan de migration
+## 7. Le plan de migration
 
 Chaque étape est **réversible** et laisse l'installation locale intacte.
 
@@ -248,7 +319,7 @@ produire exactement les mêmes chiffres — 6 729 séjours, DMS 5,15 j, 3 314
 relevés en alerte. Un écart signalerait une différence d'environnement, pas une
 différence de données.
 
-## 7. Ce que cela coûte
+## 8. Ce que cela coûte
 
 Les tarifs changent : ce chapitre donne la **structure** du coût plutôt que des
 montants qui seraient périmés à la lecture.
@@ -277,7 +348,7 @@ Trois pistes en découlent, par ordre de gain :
 3. **Ne pas dimensionner sur le pipeline.** Il ne dicte rien : c'est la
    consultation simultanée des tableaux de bord qui décide de la taille.
 
-## 8. Ce qui reste à faire
+## 9. Ce qui reste à faire
 
 ### Le lake sur stockage objet
 
