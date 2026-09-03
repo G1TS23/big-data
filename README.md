@@ -78,7 +78,7 @@ Pour activer le garde-fou RGPD sur les commits : `git config core.hooksPath .git
 - ClickHouse : http://localhost:8123/play
 - Metabase : http://localhost:3000
 
-Le pipeline tourne ensuite **seul** : le service `scheduler` déclenche `eds run`
+Le pipeline tourne ensuite seul : le service `scheduler` déclenche `eds run`
 selon `EDS_PLANIFICATION` (par défaut chaque nuit à 2 h, heure de Paris).
 
 ```bash
@@ -112,7 +112,7 @@ copiés dans le lake.
 Le détail des volumes et leur réconciliation couche par couche sont dans
 [la validation des chiffres](docs/VALIDATION.md).
 
-Ces fichiers sont **synthétiques**, et le commanditaire a confirmé par écrit
+Ces fichiers sont synthétiques, et le commanditaire a confirmé par écrit
 qu'ils ne portent aucune donnée réelle. Le pipeline les traite néanmoins comme
 s'ils étaient réels : ils contiennent des colonnes d'identité (nom, prénom, NIR),
 et celles-ci sont supprimées à l'entrée du lake, jamais rechargées ensuite. Le
@@ -123,7 +123,7 @@ En production ce répertoire n'aurait pas sa place ici : la source resterait un
 espace en lecture seule extérieur au projet, désigné par `EDS_SOURCE_PATH`. Le
 code ne fait pas la différence entre les deux — seule cette variable change.
 
-Les fichiers sont conservés **octet pour octet** : `.gitattributes` interdit à
+Les fichiers sont conservés octet pour octet : `.gitattributes` interdit à
 Git de normaliser leurs fins de ligne, faute de quoi un dépôt cloné recevrait
 une version réécrite et les contrôles de copie fidèle du lake tomberaient.
 
@@ -134,10 +134,10 @@ La suite de tests, elle, ne dépend pas d'eux : `tests/fixtures/` contient des
 
 | Exigence | Mise en œuvre |
 |---|---|
-| Pseudonymisation | HMAC-SHA256 salé sur `patient_id`, appliqué **à l'entrée du lake** — déterministe (les jointures survivent), non réversible sans le sel |
+| Pseudonymisation | HMAC-SHA256 salé sur `patient_id`, appliqué à l'entrée du lake — déterministe (les jointures survivent), non réversible sans le sel |
 | Minimisation | `nom`, `prenom`, `nir` supprimés ; `birth_date` généralisée en `birth_year` |
 | Cloisonnement | trois usages, trois comptes ClickHouse, trois collections Metabase ; `eds acces` en fait la démonstration (41 contrôles) |
-| Petits effectifs | seuil k = 5 **scellé dans les vues** de recherche, en `SQL SECURITY DEFINER` — ni paramétrable, ni contournable |
+| Petits effectifs | seuil k = 5 scellé dans les vues de recherche, en `SQL SECURITY DEFINER` — ni paramétrable, ni contournable |
 | Traçabilité | `_batch_id` sur chaque ligne → `ops.run_log` → `ops.ingestion_log` → chemin du fichier source, taille, date de dépôt et horodatage |
 | Reprise sur incident | écriture sous nom provisoire puis renommage atomique : à son emplacement définitif, un fichier est toujours complet |
 | Garde-fou outillé | `.githooks/pre-commit` refuse tout commit contenant un NIR ou une zone de données |
@@ -181,12 +181,12 @@ versionne pas lui-même :
 make livrables        # ../rendu/rapport-eds-chu.pdf + ../rendu/eds-chu-depot.zip
 ```
 
-Le **rapport** assemble les trois documents de `docs/`, images et schémas
+Le rapport assemble les trois documents de `docs/`, images et schémas
 compris, en un PDF d'une quarantaine de pages. Il est produit *depuis* ces
 documents, donc il ne peut pas en diverger. Chrome l'imprime en mode headless :
 c'est le seul moteur qui rende les schémas Mermaid.
 
-L'**archive** est faite par `git archive`, et non par `zip` : seul ce qui est
+L'archive est faite par `git archive`, et non par `zip` : seul ce qui est
 versionné y entre — ni `.venv`, ni `lake/`, ni `logs/`, ni `.env`. Le correcteur
 y trouve exactement ce qu'un `git clone` lui donnerait, données du CHU comprises.
 

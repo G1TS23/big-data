@@ -7,6 +7,17 @@ redirigée dans un fichier. L'outil ne fait que le mettre en page.
     eds acces > /tmp/acces.txt
     python docs/outils/capture_terminal.py /tmp/acces.txt docs/img/cloisonnement.png
 
+Deux mises en page. Sans option, la sortie de « eds acces » est répartie en deux
+colonnes — moteur, puis restitution. Avec --titre, n'importe quelle sortie est
+rendue en une colonne :
+
+    python docs/outils/capture_terminal.py sortie.txt docs/img/x.png \
+        --titre "eds — les KPI sur les deux infrastructures" \
+        --invite "$ kubectl exec -n eds clickhouse-0 -- clickhouse-client …"
+
+L'invite est TOUJOURS fournie à la main, jamais reprise du terminal : le rendu
+est anonyme, aucun nom d'utilisateur ne doit apparaître sur une image du dossier.
+
 Dépendance : Pillow, utile à la documentation seulement — elle ne figure donc
 pas dans requirements.txt, que le pipeline seul renseigne.
 """
@@ -51,7 +62,11 @@ def rendre(sortie: Path, invite: str, titre: str,
 
     largeurs = [max(regulier.getlength(l) for l in lignes) for _, lignes in colonnes]
     hauteur_max = max(len(lignes) for _, lignes in colonnes)
-    largeur = int(MARGE * 2 + sum(largeurs) + GOUTTIERE * (len(colonnes) - 1))
+    # L'invite et le pied s'écrivent sur toute la largeur : les compter aussi,
+    # faute de quoi une ligne plus longue que les colonnes sort de l'image.
+    largeur = int(MARGE * 2 + max(sum(largeurs) + GOUTTIERE * (len(colonnes) - 1),
+                                  regulier.getlength(invite),
+                                  regulier.getlength(pied)))
     hauteur = int(BANDEAU + INTERLIGNE * 3.1 + (hauteur_max + 1) * INTERLIGNE + 90)
 
     image = Image.new("RGB", (largeur, hauteur), C["fond"])
@@ -121,6 +136,9 @@ def main() -> None:
         description="Met en page la sortie d'une commande eds pour le dossier.")
     analyseur.add_argument("source", help="fichier contenant la sortie capturée")
     analyseur.add_argument("sortie", help="image à produire, sous docs/img/")
+    analyseur.add_argument("--titre", help="titre du bandeau de la fenêtre")
+    analyseur.add_argument("--invite", default="", help="ligne de commande affichée en tête")
+    analyseur.add_argument("--pied", default="", help="ligne de conclusion sous le trait")
     arguments = analyseur.parse_args()
 
     source = _chemin_sous_le_projet(arguments.source, doit_exister=True)
@@ -128,7 +146,17 @@ def main() -> None:
     brut = source.read_text(encoding="utf-8").rstrip("\n").split("\n")
 
     # La sortie de `eds acces` comporte deux tableaux : moteur, puis restitution.
+    # C'est le CONTENU qui décide de la mise en page, pas une option : une sortie
+    # qui n'a pas ces deux en-têtes ne peut pas être répartie en deux colonnes.
     debuts = [i for i, l in enumerate(brut) if l.strip().startswith("COMPTE")]
+    if len(debuts) != 2:
+        rendre(sortie,
+               invite=arguments.invite,
+               titre=arguments.titre or "eds",
+               colonnes=[("", brut)],
+               pied=arguments.pied)
+        return
+
     garder = lambda bloc: [l for l in bloc if l.strip() and not l.startswith("INFO")]
     colonnes = [("1 · AU NIVEAU DU MOTEUR — comptes ClickHouse",
                  garder(brut[debuts[0]:debuts[1]])),
@@ -139,8 +167,8 @@ def main() -> None:
     rendre(sortie,
            # Invite neutre : le rendu est anonyme, aucun nom d'utilisateur ne doit
            # apparaître sur une image du dossier.
-           invite="eds@chu ~/eds-chu (.venv) $ eds acces",
-           titre="eds — démonstration du cloisonnement des droits",
+           invite=arguments.invite or "eds@chu ~/eds-chu (.venv) $ eds acces",
+           titre=arguments.titre or "eds — démonstration du cloisonnement des droits",
            colonnes=colonnes, pied=pied)
 
 

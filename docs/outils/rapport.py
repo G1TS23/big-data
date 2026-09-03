@@ -62,6 +62,13 @@ h2 { font-size: 14.5pt; margin: 1.6em 0 .5em;
 h3 { font-size: 12pt; margin: 1.3em 0 .4em; }
 h4 { font-size: 10.5pt; margin: 1.1em 0 .3em; }
 h2, h3, h4 { break-after: avoid; }
+/* Une capture ne doit pas se séparer du titre qui l'annonce. Le titre retient
+   déjà le paragraphe qui le suit ; ces deux règles prolongent la chaîne
+   jusqu'à l'image, faute de quoi la coupure tombe entre l'introduction et la
+   capture qu'elle introduit. */
+p:has(+ p > img) { break-after: avoid; }
+p:has(> img) { break-before: avoid; break-inside: avoid; }
+.figure { break-inside: avoid; }
 p { margin: .55em 0; orphans: 3; widows: 3; }
 a { color: #185f9c; text-decoration: none; }
 code { font: 9pt/1.4 "SF Mono", Menlo, monospace; background: #f2f5f8;
@@ -182,12 +189,29 @@ def sommaire(chapitres: list[tuple[str, str, str]]) -> str:
     return "".join(out)
 
 
+_FIGURE = re.compile(
+    r"(<p>(?:(?!</p>).)*?</p>)\s*(<p><img\b(?:(?!</p>).)*?</p>)", re.S)
+
+
+def souder_figures(html: str) -> str:
+    """Colle le paragraphe d'introduction à la capture qu'il introduit.
+
+    « break-after: avoid » n'est qu'une indication : quand la place manque en
+    bas de page, le moteur coupe quand même et la capture part seule sur la
+    page suivante. Réunir les deux dans un bloc insécable déplace l'ensemble,
+    ce qui est le comportement voulu — on lit l'annonce et l'image d'un seul
+    tenant.
+    """
+    return _FIGURE.sub(r'<div class="figure">\1\2</div>', html)
+
+
 def construire_html() -> str:
     chapitres = []
     for fichier, prefixe in CHAPITRES:
         source = (DOCS / fichier).read_text(encoding="utf-8")
         corps = convertir(source, prefixe_ancre=f"{prefixe}-")
         corps = relier(corps)
+        corps = souder_figures(corps)
         # Le premier titre du document devient l'ancre du chapitre.
         corps = corps.replace("<h1 id=", f'<h1 id="{prefixe}-titre" data-ancienne=', 1)
         titre = source.splitlines()[0].lstrip("# ").strip()
@@ -235,6 +259,10 @@ def main() -> int:
     destination = Path(sys.argv[1]) if len(sys.argv) > 1 \
         else RACINE.parent / "rendu" / "rapport-eds-chu.pdf"
     destination.parent.mkdir(parents=True, exist_ok=True)
+    # resolve() APRÈS la création : Chrome reçoit un file:// et un chemin
+    # relatif ne s'y exprime pas. La destination peut être donnée en relatif
+    # depuis le Makefile, d'où la normalisation ici plutôt qu'à l'appel.
+    destination = destination.resolve()
 
     page = destination.with_suffix(".html")
     page.write_text(incorporer_images(construire_html()), encoding="utf-8", newline="")

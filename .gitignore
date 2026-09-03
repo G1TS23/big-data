@@ -55,3 +55,18 @@ venv/
 .idea/
 .vscode/
 .DS_Store
+
+# ─── Infrastructure ──────────────────────────────────────────────────────────
+# La branche « cloud » porte infra/. Sur main, le répertoire peut subsister dans
+# l'arbre de travail après un changement de branche : ces règles évitent qu'un
+# « git add -A » n'y ramasse le fournisseur téléchargé (236 Mo) ou, bien pire,
+# l'état de Terraform.
+#
+# L'ÉTAT EST UN SECRET : Terraform y écrit en clair tout ce qu'il connaît, dont
+# le mot de passe de la base managée et la clé du compte de stockage.
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+TF_VAR_*
