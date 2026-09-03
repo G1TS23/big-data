@@ -87,9 +87,12 @@ li { margin: .22em 0; }
 .sommaire { break-after: page; }
 .sommaire h1 { break-before: avoid; }
 .sommaire ol { list-style: none; margin: 0; padding: 0; }
-.sommaire > ol > li { margin: .75em 0 .2em; font-weight: 600; color: #0d366b; }
+.sommaire > ol > li { margin: .55em 0 .12em; font-weight: 600; color: #0d366b; }
 .sommaire ol ol { margin: .1em 0 0 0; padding-left: 1.1em; font-weight: 400; }
-.sommaire ol ol li { margin: .1em 0; font-size: 9.6pt; }
+.sommaire ol ol li { margin: .05em 0; font-size: 9.3pt; }
+.sommaire li.partie { margin: .32em 0 .1em; font-weight: 600;
+                      font-size: 10pt; color: #245a94; }
+.sommaire li.partie > ol { font-weight: 400; }
 .sommaire a { color: inherit; }
 """
 
@@ -115,15 +118,34 @@ def relier(html_chapitre: str) -> str:
 
 
 def sommaire(chapitres: list[tuple[str, str, str]]) -> str:
-    """Un sommaire à deux niveaux, construit depuis les titres rencontrés."""
+    """Un sommaire à trois niveaux, construit depuis les titres rencontrés.
+
+    Un document peut porter des titres de niveau 1 INTERNES — « Partie 1 »,
+    « Partie 2 » — qui ne sont pas son titre. Les ignorer aplatirait le
+    sommaire : les onze sections du dossier et les sept leçons s'y
+    aligneraient sans qu'on voie où l'une finit et l'autre commence.
+    """
     import re
+
+    titres = re.compile(r'<h([12]) id="([^"]+)">(.*?)</h\1>', re.S)
 
     out = ['<section class="sommaire"><h1 class="premier">Sommaire</h1><ol>']
     for titre, prefixe, html_chapitre in chapitres:
         out.append(f'<li><a href="#{prefixe}-titre">{titre}</a><ol>')
-        for m in re.finditer(r'<h2 id="([^"]+)">(.*?)</h2>', html_chapitre, re.S):
-            texte = re.sub(r"<[^>]+>", "", m.group(2))
-            out.append(f'<li><a href="#{m.group(1)}">{texte}</a></li>')
+        groupe_ouvert = False
+        for m in titres.finditer(html_chapitre):
+            niveau, ancre, texte = int(m.group(1)), m.group(2), re.sub(r"<[^>]+>", "", m.group(3))
+            if ancre == f"{prefixe}-titre":
+                continue                       # le titre du chapitre, déjà posé
+            if niveau == 1:
+                if groupe_ouvert:
+                    out.append("</ol></li>")
+                out.append(f'<li class="partie"><a href="#{ancre}">{texte}</a><ol>')
+                groupe_ouvert = True
+            else:
+                out.append(f'<li><a href="#{ancre}">{texte}</a></li>')
+        if groupe_ouvert:
+            out.append("</ol></li>")
         out.append("</ol></li>")
     out.append("</ol></section>")
     return "".join(out)
