@@ -366,6 +366,15 @@ lake. Les services sont en `ClusterIP` : **aucune adresse externe**, ni pour le
 moteur ni pour la restitution. Le refus par défaut porte sur tous les pods
 (`<none>` en sélecteur) et deux règles seulement rouvrent le nécessaire.
 
+La chaîne elle-même se rejoue à l'identique, et son idempotence se lit dans
+les chiffres :
+
+![La chaîne complète sur le cluster](img/cloud-pipeline.png)
+
+Les 92 dépôts sont **vus puis ignorés** à l'étape lake : ils ont déjà été
+publiés, rien n'est réécrit. Seules les couches reconstruites à chaque passage —
+silver et gold — refont leur travail. La chaîne entière tient en 2,78 secondes.
+
 **La vérification qui décide de tout** reste la comparaison des indicateurs.
 Le pipeline est déterministe et reconstruit silver et gold à chaque passage :
 les mêmes fichiers doivent donner les mêmes chiffres, sur une autre
@@ -385,6 +394,37 @@ Le cloisonnement, enfin, se rejoue à l'identique sur le cluster :
 Quarante et un contrôles, vingt sur le moteur et vingt et un sur la restitution,
 tous conformes à l'attendu. C'est le même chiffre qu'en local — la garantie ne
 tient pas au `docker-compose`, elle tient aux droits eux-mêmes.
+
+#### Ce que ces images établissent, et ce qu'elles n'établissent pas
+
+Il faut être honnête sur leur valeur : **aucune capture ne prouve qu'un
+déploiement a eu lieu.** Une image de `kubectl get pods` est du texte, et du
+texte se fabrique. Nous n'invoquons donc pas ces quatre pièces comme des
+preuves, et nous avons écarté pour la même raison une capture d'un tableau de
+bord servi par le cluster : prise à travers un tunnel, elle affiche
+`localhost:3000` et ne se distingue en rien de la même page servie en local.
+Une pièce incapable de départager les deux hypothèses n'appuie pas la thèse,
+elle l'affaiblit.
+
+Ce qui rend ce chapitre vérifiable est ailleurs, et tient en trois points.
+
+**L'infrastructure est du code, et il est dans le dépôt.** Personne n'a à nous
+croire sur parole : `terraform validate` s'exécute hors ligne, `terraform plan`
+confronte la description à l'API d'Azure, et un `apply` sur une autre
+souscription reconstruit le même ensemble. C'est reproductible, ce qu'une
+capture n'est jamais. C'est aussi la raison pour laquelle l'*infrastructure as
+code* est ici le livrable, et les images de simples illustrations.
+
+**Les pièces se recoupent.** Les identifiants de volumes, les suffixes de pods,
+le `_batch_id` que l'on retrouve d'une image aux journaux du pipeline, les
+identifiants de ressources : un jeu cohérent coûte bien davantage à fabriquer
+qu'une image isolée.
+
+**Les difficultés rencontrées sont, paradoxalement, la meilleure preuve.** Les
+cinq défauts décrits ci-après — un `fsGroup` manquant, une extension refusée par
+Azure, un conflit entre accès public et réseau virtuel — ne s'inventent pas.
+Ils portent la marque d'un système qu'on a réellement fait tourner, et c'est une
+trace textuelle, non photographique.
 
 ### Ce que le déploiement a révélé, et que rien d'autre n'aurait trouvé
 
