@@ -426,6 +426,50 @@ Azure, un conflit entre accès public et réseau virtuel — ne s'inventent pas.
 Ils portent la marque d'un système qu'on a réellement fait tourner, et c'est une
 trace textuelle, non photographique.
 
+#### La destruction, et ce qu'elle a appris
+
+L'infrastructure a été détruite après les captures, comme annoncé.
+
+![La destruction et sa vérification](img/cloud-destruction.png)
+
+Vingt ressources détruites, le groupe disparu, aucune ressource portant
+l'étiquette du projet dans toute la souscription. Les deux ressources qui
+subsistent sont des `NetworkWatcher` qu'Azure crée lui-même dès qu'un réseau
+virtuel existe ; elles ne viennent pas de notre description et Azure les recrée
+de toute façon.
+
+**Mais `terraform destroy` n'avait pas tout détruit**, et c'est le dernier
+enseignement de ce chapitre. Azure Key Vault applique une **suppression
+réversible obligatoire** : le coffre restait récupérable pendant quatre-vingt-dix
+jours, avec ses sept secrets — dont le sel de pseudonymisation. Il a fallu une
+purge explicite :
+
+```
+az keyvault purge --name kv-edschu-recette --location swedencentral
+```
+
+Cette mécanique met deux exigences en tension, et le projet doit choisir laquelle
+prime. La suppression réversible protège d'une destruction accidentelle, ce qui
+est manifestement souhaitable pour un coffre : Azure ne permet d'ailleurs plus
+de la désactiver. Mais le RGPD porte un **droit à l'effacement**, et un sel de
+pseudonymisation qui survit trois mois à la destruction de l'entrepôt qu'il
+servait est précisément ce qu'un délégué à la protection des données relèverait.
+
+Le curseur se règle par `purge_protection_enabled`. Nous l'avons laissé à
+`false`, ce qui rend la purge possible — le bon choix pour une infrastructure de
+démonstration qui doit pouvoir disparaître entièrement. En production,
+l'inclination naturelle serait de le passer à `true` pour se prémunir d'une
+suppression malveillante ; il faut alors savoir que **la purge devient impossible
+pendant quatre-vingt-dix jours**, et que la procédure d'effacement d'un patient
+ne peut donc pas reposer sur la destruction du coffre. Elle doit reposer sur la
+rotation du sel, qui rend les pseudonymes anciens irréconciliables — ce que
+`docs/EXPLOITATION.md` décrit déjà comme une opération lourde, et qui trouve ici
+sa justification réglementaire.
+
+C'est une conclusion inattendue pour un chapitre d'infrastructure : **le geste
+qui protège les données et celui qui les efface sont le même geste, réglé en
+sens contraire.**
+
 ### Ce que le déploiement a révélé, et que rien d'autre n'aurait trouvé
 
 Les niveaux 1 et 2 déclaraient l'infrastructure valide. Elle l'était, au sens où

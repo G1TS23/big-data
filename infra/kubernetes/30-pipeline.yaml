@@ -74,9 +74,11 @@ spec:
                   mountPath: /filestorage
                   readOnly: true
           volumes:
-            # Le lake reste un volume tant que eds/lake.py écrit avec
-            # shutil.copy2. Le bucket est provisionné et attend ce changement —
-            # voir docs/CLOUD.md, « ce qui reste à faire ».
+            # Le lake reste un disque managé tant que eds/lake.py écrit avec
+            # shutil.copy2 et os.replace. Aucun conteneur objet n'est provisionné
+            # pour lui : le provisionner d'avance ne servirait à rien tant que le
+            # code ne sait pas y écrire — voir docs/CLOUD.md, « ce qui reste à
+            # faire ».
             - name: lake
               persistentVolumeClaim:
                 claimName: eds-lake
