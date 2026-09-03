@@ -136,7 +136,6 @@ l'intérieur du cluster, et seulement par Metabase et le pipeline — une politi
 réseau le garantit indépendamment des mots de passe. C'est une troisième
 barrière de cloisonnement, qui s'ajoute aux comptes du moteur et aux
 collections Metabase.
----
 
 ## 3. La zone de dépôt
 
