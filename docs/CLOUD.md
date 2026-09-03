@@ -351,6 +351,41 @@ aucun disque portant des données de santé.
 > démonstration portant des données de santé se détruit après usage ; c'est ce
 > qu'on ferait pour un vrai CHU, et c'est ce que nous recommandons.
 
+Ce niveau a été joué. Voici ce qui a réellement existé sur Azure :
+
+![L'infrastructure créée](img/cloud-ressources.png)
+
+Huit ressources, un seul groupe, une seule région. Les deux entrées `global`
+sont la zone DNS privée et son rattachement au réseau : elles n'ont pas de
+région parce qu'elles n'hébergent aucune donnée.
+
+![L'entrepôt en fonctionnement](img/cloud-cluster.png)
+
+Les deux volumes sont des disques managés — celui de ClickHouse et celui du
+lake. Les services sont en `ClusterIP` : **aucune adresse externe**, ni pour le
+moteur ni pour la restitution. Le refus par défaut porte sur tous les pods
+(`<none>` en sélecteur) et deux règles seulement rouvrent le nécessaire.
+
+**La vérification qui décide de tout** reste la comparaison des indicateurs.
+Le pipeline est déterministe et reconstruit silver et gold à chaque passage :
+les mêmes fichiers doivent donner les mêmes chiffres, sur une autre
+infrastructure, dans un autre pays, sur une autre architecture processeur.
+
+![Les mêmes chiffres sur les deux infrastructures](img/cloud-kpi-identiques.png)
+
+Les sept indicateurs coïncident. Les `_batch_id` diffèrent, ce qui écarte
+l'hypothèse d'une même base interrogée deux fois : ce sont bien deux exécutions
+indépendantes. Un écart, ici, aurait signalé une différence d'environnement — et
+non une différence de données.
+
+Le cloisonnement, enfin, se rejoue à l'identique sur le cluster :
+
+![Le cloisonnement sur le cluster](img/cloud-cloisonnement.png)
+
+Quarante et un contrôles, vingt sur le moteur et vingt et un sur la restitution,
+tous conformes à l'attendu. C'est le même chiffre qu'en local — la garantie ne
+tient pas au `docker-compose`, elle tient aux droits eux-mêmes.
+
 ### Ce que le déploiement a révélé, et que rien d'autre n'aurait trouvé
 
 Les niveaux 1 et 2 déclaraient l'infrastructure valide. Elle l'était, au sens où
