@@ -18,9 +18,9 @@ output "coffre" {
   value       = azurerm_key_vault.eds.name
 }
 
-output "lake" {
-  description = "Conteneur du lake, quand eds/lake.py saura y écrire."
-  value       = "${azurerm_storage_account.lake.name}/${azurerm_storage_container.lake.name}"
+output "zone_de_depot" {
+  description = "Partage où le CHU dépose : az storage file upload-batch --share-name ..."
+  value       = "${azurerm_storage_account.depot.name}/${azurerm_storage_share.depot.name}"
 }
 
 output "base_metabase" {

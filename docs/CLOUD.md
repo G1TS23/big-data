@@ -37,9 +37,11 @@ hébergeur certifié ne l'est pas pour l'intégralité de son catalogue. Le pér
 exact doit être vérifié service par service au moment de contracter — c'est un
 point de vigilance contractuel, que ce document signale sans pouvoir le trancher.
 
-**Le chiffrement et la traçabilité ne sont plus optionnels.** Le stockage objet
-impose le chiffrement au repos côté serveur, la base managée l'active, et le
-verrouillage objet empêche qu'un dépôt du CHU soit modifié après écriture.
+**Le chiffrement au repos n'est plus optionnel.** Il s'applique aux disques
+managés qui portent l'entrepôt, au partage où le CHU dépose, et à la base
+applicative de Metabase — y compris à celle-ci, qui ne contient pourtant aucune
+donnée de santé : la liste des comptes qui accèdent à un entrepôt mérite la même
+protection que l'entrepôt.
 
 ## 2. L'architecture cible
 
@@ -52,17 +54,19 @@ flowchart TB
         LB["Ingress<br/>TLS"]:::net
         subgraph k8s ["Kubernetes"]
             MB["Metabase<br/>Deployment"]:::app
-            CH["ClickHouse<br/>StatefulSet + volume"]:::db
+            CH["ClickHouse<br/>StatefulSet + disque"]:::db
             CJ["Pipeline<br/>CronJob quotidien"]:::job
+            LK[("lake<br/>disque managé")]:::sto
         end
         PG["PostgreSQL managé<br/>état de Metabase"]:::db
-        OS["Stockage objet<br/>lake, chiffré, verrouillé"]:::sto
+        AF["Partage de fichiers<br/>zone de dépôt du CHU"]:::sto
         SM["Gestionnaire<br/>de secrets"]:::sec
     end
     U -->|https| LB --> MB
     MB --> CH
     CJ --> CH
-    CJ --> OS
+    CJ --> LK
+    AF -->|lecture seule| CJ
     MB --> PG
     SM -.->|sel, mots de passe| CJ
     SM -.-> MB
@@ -133,10 +137,9 @@ l'usage, ce que le principe de minimisation interdit. C'est l'inverse du
 réflexe habituel, qui pousse à tout garder « au cas où ».
 
 **Cette purge n'est pas implémentée**, et il faut le dire. Azure Files n'offre
-pas de règle de cycle de vie — contrairement au stockage objet, où le lake en a
-une, déclarative. La purge doit donc être portée par une tâche planifiée, qui
-reste à écrire. C'est une dette assumée : la nommer ici, et dans le fichier
-Terraform, évite qu'elle se perde.
+pas de règle de cycle de vie déclarative : la purge doit être portée par une
+tâche planifiée, qui reste à écrire. C'est une dette assumée — la nommer ici, et
+dans le fichier Terraform, évite qu'elle se perde.
 
 Une variante mérite d'être étudiée en production : un conteneur objet avec SFTP
 activé plutôt qu'un partage SMB. Le CHU y pousserait par SFTP, et la rétention
@@ -276,7 +279,6 @@ Plan: 19 to add, 0 to change, 0 to destroy.
 | `kubernetes_cluster` | 2 nœuds, 4 vCPU sur les 6 du quota |
 | `container_registry` | l'image du pipeline |
 | `key_vault` + `key_vault_secret` | le coffre, et le seul secret que Terraform connaisse |
-| `storage_account` + `container` + `management_policy` | le lake, versionné, avec sa rétention de dix ans |
 | `storage_account` + `share` + secret | **la zone de dépôt, sur un compte séparé** |
 | `postgresql_flexible_server` + `database` | l'état de Metabase |
 | 3 × `role_assignment` | moindre privilège : lire le coffre, tirer l'image |
@@ -305,7 +307,7 @@ Chaque étape est **réversible** et laisse l'installation locale intacte.
 | # | étape | vérification |
 |---|---|---|
 | 1 | Contracter chez un hébergeur certifié HDS, vérifier le périmètre par service | contrat |
-| 2 | `terraform apply` — réseau, bucket, secrets, cluster, registre | `terraform plan` vide ensuite |
+| 2 | `terraform apply` — réseau, zone de dépôt, secrets, cluster, registre | `terraform plan` vide ensuite |
 | 3 | Déposer les secrets dans le gestionnaire, hors de Terraform | lecture depuis un pod |
 | 4 | Construire et pousser l'image en `linux/amd64` | `docker pull` depuis le cluster |
 | 5 | Appliquer les manifestes, dans l'ordre | `kubectl get pods` |
@@ -328,7 +330,7 @@ montants qui seraient périmés à la lecture.
 |---|---|---|
 | Nœuds Kubernetes | 3 nœuds en permanence | **dominant** |
 | Base managée | un nœud, doublé en production | notable |
-| Stockage objet | volume du lake — 3,3 Mo aujourd'hui | négligeable |
+| Stockage | disque du lake et partage de dépôt — 3,3 Mo aujourd'hui | négligeable |
 | Gestionnaire de secrets | quelques secrets | négligeable |
 | Sortie réseau | consultation des tableaux de bord | faible |
 
@@ -352,10 +354,31 @@ Trois pistes en découlent, par ordre de gain :
 
 ### Le lake sur stockage objet
 
-C'est le seul composant du pipeline encore lié à un système de fichiers :
-`eds/lake.py` écrit avec `shutil.copy2` et publie par un renommage atomique. Sur
-le cloud, il devrait écrire dans le bucket — **provisionné, chiffré et verrouillé
-par `infra/terraform/stockage.tf`, mais que le code ne sait pas encore utiliser.**
+Aujourd'hui, le lake vit sur un **disque managé** attaché au cluster : un vrai
+système de fichiers, où `eds/lake.py` fonctionne sans modification. C'est ce qui
+permet de déployer sans toucher au code.
+
+**Nous n'avons délibérément pas provisionné de stockage objet inutilisé.** Une
+infrastructure décrit ce qui tourne ; provisionner un conteneur que rien n'écrit
+créerait une ressource facturée, sauvegardée et auditée pour rien — et
+laisserait croire que le lake y vit.
+
+#### Pourquoi ne pas simplement monter un conteneur objet comme un disque
+
+C'est la fausse bonne idée, et elle mérite d'être écartée explicitement. Azure
+sait présenter un conteneur objet comme un système de fichiers ; le pipeline
+tournerait alors sans une ligne de changement.
+
+Il **casserait pourtant silencieusement** la garantie sur laquelle repose le
+lake. Ces passerelles émulent le renommage par une copie suivie d'une
+suppression — donc **pas atomiquement**. Un fichier pourrait apparaître sous son
+nom définitif alors que sa copie n'est pas terminée, et `est_publie()`
+conclurait à tort qu'il est complet. Le pipeline ne lèverait aucune erreur : il
+chargerait un fichier tronqué.
+
+Une garantie que l'on croit tenir et qui ne tient plus est pire qu'une garantie
+absente. Le portage doit donc passer par le **client objet**, qui rend
+l'atomicité nativement — et non par un montage qui la simule.
 
 #### Le mécanisme des `.partiel` disparaît, il ne se complique pas
 
