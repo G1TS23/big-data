@@ -20,6 +20,7 @@ incident sont dans le [guide d'exploitation](EXPLOITATION.md).
   - [9. Ce qui a changé, ce qui n'a pas bougé](#9-ce-qui-a-changé-ce-qui-na-pas-bougé)
   - [10. Les deux pièges](#10-les-deux-pièges)
   - [11. Les nouveaux indicateurs](#11-les-nouveaux-indicateurs)
+- [Ce que ce projet nous a appris](#ce-que-ce-projet-nous-a-appris)
 
 ---
 
@@ -294,6 +295,74 @@ Metabase en édition communautaire n'exporte pas ses tableaux de bord : ils sont
 donc **décrits dans `config/dashboards.yml`**, versionnés et reconstructibles à
 l'identique par `eds metabase`.
 
+### À quelle question répond chaque carte
+
+Un tableau de bord n'est pas une collection de graphiques disponibles : c'est
+une suite de questions qu'un métier se pose. Pour le pilotage :
+
+| carte | la question posée | par qui |
+|---|---|---|
+| Séjours · DMS · Réadmission · Alertes | les quatre nombres qu'on cite en réunion | direction |
+| DMS par service | quels services gardent les patients le plus longtemps ? | direction |
+| Réadmission par service de sortie | d'où les patients repartent-ils trop tôt ? | cadres de santé |
+| Passages aux urgences par jour | la charge des urgences suit-elle un rythme ? | cadre des urgences |
+| Patients présents chaque jour | l'hôpital se remplit-il ou se vide-t-il ? | direction |
+| Alertes par jour et par motif | la surveillance signale-t-elle plus certains jours, et de quoi ? | cadres de santé |
+| Mode d'admission par service | quelle part de l'activité est programmée ? | direction |
+
+La recherche pose d'autres questions : *quelle est la prévalence de chaque
+pathologie, comment se répartissent les patients par âge et par sexe, quelles
+pathologies s'associent, combien de temps dure un séjour selon la pathologie.*
+Aucune ne demande un service ni une journée — c'est pourquoi le tableau de
+recherche n'en montre aucun.
+
+### Pourquoi ces formes de graphique
+
+Le choix n'est pas esthétique, il découle de ce que la donnée est. Quatre règles
+tenues partout :
+
+| ce qu'on montre | forme retenue | pourquoi |
+|---|---|---|
+| un nombre isolé | **scalaire** | rien à comparer : un graphique le noierait |
+| des catégories à comparer | **barres horizontales, triées** | le libellé se lit sans incliner la tête, et le tri fait le classement |
+| un **flux** dans le temps | **barres verticales** | des admissions se comptent par jour, elles ne se prolongent pas d'un jour à l'autre |
+| un **stock** dans le temps | **courbe** | des patients présents un jour le sont encore le lendemain : la continuité est réelle, la ligne la montre |
+| une liste à lire | **table** | les comorbidités ou les exécutions se lisent ligne à ligne, pas en longueurs comparées |
+
+La distinction **flux / stock** est celle qui décide entre les deux formes
+temporelles du tableau de pilotage : « Passages aux urgences par jour » est un
+flux, « Patients présents chaque jour » est un stock. Les tracer pareil
+laisserait croire qu'on peut les additionner.
+
+### Ce que nous avons écarté
+
+Un choix se défend autant par ce qu'il rejette. Quatre cartes ont existé puis
+disparu :
+
+- **une distribution globale par âge et par sexe.** Le sujet fait porter cette
+  analyse sur les diagnostics, pas sur les séjours : la carte répondait à une
+  question que personne ne pose.
+- **un filtre par pathologie** sur les cohortes. Il obligeait à cliquer pour
+  comparer ; deux petits multiples montrent tout d'un coup d'œil.
+- **une sixième tranche d'âge.** La rampe ordonnée n'offre pas assez d'écart de
+  clarté pour six pas : le sixième devenait indistinguable du cinquième. La
+  lisibilité a tranché contre la finesse.
+- **une `dim_date`.** Elle n'aurait ajouté qu'une jointure : le moteur sait
+  extraire un mois, et le CHU ne fournit aucun calendrier métier.
+
+### Les couleurs, et pourquoi elles ne sont pas décoratives
+
+Les tranches d'âge forment un axe **ordonné**. Elles emploient donc une rampe
+d'une **seule teinte**, du clair au foncé : l'ordre se lit dans la clarté, ce
+qu'aucun daltonisme n'altère, là où des couleurs distinctes nieraient l'ordre et
+perdraient cette propriété. Les séries catégorielles, elles, utilisent une
+palette dont chaque paire voisine reste séparable ; les teintes qui passent sous
+3:1 de contraste sur fond clair affichent leurs valeurs, ce qui tient lieu de
+second encodage.
+
+Une même entité garde sa couleur d'une carte à l'autre. C'est ce qui permet de
+suivre un service d'un graphique au suivant sans relire la légende.
+
 ### Pilotage hospitalier
 
 Quatre indicateurs de synthèse en tête, puis le détail par service et par jour.
@@ -337,15 +406,6 @@ manquants — et n'encombrent donc pas le graphique. Ils tournent pourtant à
 chaque exécution et restent dans `ops.data_quality` : un test vérifie qu'ils y
 sont toujours, de sorte qu'« aucune anomalie » ne puisse silencieusement devenir
 « plus personne ne mesure ». Le jeu précédent en affichait 53,7 % et 14,4 %.
-
-Deux choix de lisibilité méritent d'être dits. Les tranches d'âge sont un axe
-**ordonné** : elles utilisent une rampe d'une seule teinte, du clair au foncé —
-seul codage qui reste lisible pour un daltonien, puisqu'il porte sur la clarté et
-non sur la teinte. Cette contrainte a réduit le découpage de six à cinq tranches :
-au-delà, l'écart de clarté entre les deux derniers pas devenait indistinguable.
-Les séries catégorielles utilisent une palette validée, et les teintes qui
-passent sous 3:1 de contraste affichent leurs valeurs, ce qui tient lieu de
-second encodage.
 
 ### La démonstration du cloisonnement
 
@@ -593,3 +653,115 @@ l'afficher à zéro le ferait passer pour inactif.
 **La non-régression est vérifiée par un test** : les sept indicateurs de synthèse
 sont inchangés après l'évolution. C'est ce que le sujet exigeait, et c'est la
 propriété qu'il aurait été le plus facile de perdre sans s'en apercevoir.
+
+---
+
+# Ce que ce projet nous a appris
+
+Ces leçons ne sont pas des principes lus ailleurs : chacune vient d'une erreur
+commise sur ce projet, et chacune a changé quelque chose dans le code.
+
+## Un chiffre juste n'est pas un chiffre vrai
+
+Le taux de réadmission a d'abord affiché **59 %**. La requête était correcte, la
+formule aussi : elle comptait comme des retours des séjours qui se
+**chevauchaient**, donc séparés d'un nombre de jours négatif. Aucun test ne
+pouvait le voir — il fallait regarder les lignes. Le taux est tombé à 5,4 % une
+fois la définition corrigée.
+
+Plus tard, le recalcul manuel des indicateurs a trouvé **15 séjours rejetés au
+lieu de 68**. Cette fois c'était le recalcul qui avait tort : il comparait des
+dates là où la règle compare des horodatages, laissant passer 53 séjours sortis
+le matin même de leur admission. Le désaccord n'a pas été tranché d'un côté ou
+de l'autre, il a été instruit — et il a localisé une définition qui méritait
+d'être écrite.
+
+> **Ce que nous en retenons.** La seule vérification qui vaut est une mesure
+> **indépendante** : recalculer avec du code qui n'emprunte rien au pipeline. Et
+> un désaccord entre deux mesures est une information, pas un incident.
+
+## Un test peut passer sans rien prouver
+
+« Aucune ligne ne viole cette contrainte » est **vrai sur une table vide**.
+Plusieurs contrôles d'intégrité passaient ainsi à vide sans que rien ne le
+signale. Ils portent désormais tous une assertion de non-vacuité.
+
+Le même piège s'est refermé une seconde fois, ailleurs : deux relevés
+d'indicateurs comparés par `diff`, verdict « identiques ». Les deux fichiers
+faisaient zéro octet — le moteur était arrêté au moment du relevé.
+
+> **Ce que nous en retenons.** Tout contrôle doit prouver qu'il a examiné
+> quelque chose. Une comparaison commence par vérifier que ce qu'on compare
+> existe.
+
+## Ce qui marche chez soi ne marche nulle part ailleurs
+
+Quatre défauts n'ont existé que hors de la machine de développement :
+`requirements.lock` ne portait que les empreintes d'une seule **architecture**,
+`import fcntl` tuait **toutes** les commandes sous Windows, la ligne
+d'installation du README n'installait pas la commande `eds`, et le mot de passe
+d'exemple `changeme` était refusé par Metabase.
+
+Aucun n'aurait été trouvé par relecture. Tous l'ont été en partant d'un **clone
+nu** et en suivant le README à la lettre, puis en construisant l'image pour
+l'autre architecture.
+
+> **Ce que nous en retenons.** Le seul test d'installation qui compte se fait
+> depuis zéro, sur une machine qui ne sait rien du projet.
+
+## Certains défauts ne se voient pas dans le code
+
+Trois erreurs de tableau de bord n'ont été trouvées qu'en **relisant les captures
+exportées** : la table des exécutions montrait les runs de la suite de tests, un
+encart promettait une empreinte SHA-256 supprimée depuis longtemps, et la
+volumétrie additionnait les rechargements successifs — **40 848 lignes affichées
+pour 1 776 réelles**, un écart qui grandissait à chaque exécution.
+
+Les trois requêtes étaient valides. Aucun test ne les regardait, parce qu'aucun
+test ne regardait ce que l'utilisateur voit.
+
+> **Ce que nous en retenons.** Relire le produit fini fait partie du travail, et
+> ce qu'on y trouve mérite un test — les trois en ont un maintenant.
+
+## Une objection se mesure
+
+Le commanditaire a signalé que garantir l'idempotence imposait de « parcourir
+toute la base ». La mesure a montré autre chose : le moteur élaguait les
+partitions et lisait un seul granule. Le vrai coût était ailleurs — **756 ms
+pour 300 aller-retours contre 3 ms en une seule requête groupée**, un facteur
+287.
+
+L'objection était juste dans son intuition — c'était trop cher — et fausse dans
+son diagnostic. Sans la mesure, nous aurions optimisé la mauvaise chose.
+
+> **Ce que nous en retenons.** Une critique se prend au sérieux **et** se mesure.
+> La mesure déplace souvent le problème sans l'annuler.
+
+## Écarter une donnée est une décision, jamais une hygiène
+
+68 séjours portaient une date de sortie antérieure à leur admission — des fautes
+de frappe de quelques heures. Les écarter emportait **127 diagnostics posés par
+un médecin, 528 relevés au chevet du patient, et 51 patients** qui n'avaient que
+ce séjour.
+
+La correction n'a pas été de tout garder, mais de séparer ce qui est faux de ce
+qui est gênant : une valeur hors bornes physiologiques est fausse et sort ; un
+diagnostic reste vrai quand la date du séjour ne l'est pas.
+
+> **Ce que nous en retenons.** Chaque ligne écartée doit être comptée, avec sa
+> règle, et le total doit se réconcilier. L'équation
+> `source = retenu + rejeté + doublons` est ce qui empêche une perte silencieuse.
+
+## Ce qu'on cesse de mesurer disparaît
+
+Deux contrôles affichent zéro sur le jeu de données actuel. Ils ont pourtant
+mesuré **53,7 % de séjours chevauchants et 14,4 % de modes de sortie manquants**
+sur la livraison précédente — et c'est cette mesure qui a permis de le dire au
+CHU.
+
+Ils continuent donc de tourner, même s'ils n'apparaissent plus sur le graphique,
+et un test vérifie qu'ils existent toujours.
+
+> **Ce que nous en retenons.** Un indicateur à zéro et un indicateur supprimé se
+> ressemblent sur un tableau de bord. Seule la mesure conservée distingue
+> « aucune anomalie » de « plus personne ne regarde ».
