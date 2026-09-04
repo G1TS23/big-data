@@ -1,0 +1,64 @@
+# Le cloisonnement, porté jusqu'au réseau.
+#
+# L'entrepôt cloisonne déjà par comptes ClickHouse et par collections Metabase.
+# Ces politiques ajoutent une troisième barrière, indépendante des deux
+# premières : même en possédant un mot de passe valide, un pod qui n'a pas à
+# joindre le moteur ne le joint pas.
+#
+# La première règle refuse tout ; les suivantes rouvrent le strict nécessaire.
+# L'ordre importe : un oubli ferme au lieu d'ouvrir.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: refus-par-defaut
+  namespace: eds
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clickhouse-joignable-par-metabase-et-pipeline
+  namespace: eds
+spec:
+  podSelector:
+    matchLabels:
+      app: clickhouse
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: metabase
+        - podSelector:
+            matchLabels:
+              app: eds-pipeline
+      ports:
+        - protocol: TCP
+          port: 8123
+---
+# Metabase est le seul service exposé aux utilisateurs. L'entrée vient du
+# contrôleur d'ingress, qui vit dans un espace de noms distinct — sur AKS,
+# app-routing-system quand l'extension managée est activée.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metabase-joignable-depuis-l-ingress
+  namespace: eds
+spec:
+  podSelector:
+    matchLabels:
+      app: metabase
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: app-routing-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 3000

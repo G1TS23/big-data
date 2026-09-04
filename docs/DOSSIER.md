@@ -487,6 +487,10 @@ signalées, jamais corrigées en silence : la réponse correcte est de les remon
   `source-filestorage/` versionné ici n'aurait pas sa place en production.
 - **Le sel de pseudonymisation** doit vivre dans un coffre, non dans un fichier
   `.env` : il est aujourd'hui non versionné, ce qui est le minimum, pas la cible.
+
+Ces deux limites-là ont été levées depuis, hors du périmètre demandé : le
+chapitre [Passage au cloud](CLOUD.md) porte l'entrepôt chez un hébergeur, met
+le sel dans un coffre, et rend compte de ce que l'exercice a coûté.
 - **La reconstruction intégrale** de silver et gold à chaque exécution tient à
   cette volumétrie. À l'échelle réelle, il faudrait reconstruire par partition.
 - **Une `dim_date`** deviendrait utile dès que le CHU fournirait son calendrier

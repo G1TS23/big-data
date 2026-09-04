@@ -1,0 +1,117 @@
+# Le pipeline, en tâche planifiée.
+#
+# C'est la traduction directe du service « scheduler » de docker-compose, à une
+# différence près : APScheduler tenait la cadence dans un processus qui devait
+# rester vivant ; Kubernetes la tient lui-même. Le conteneur ne vit plus que le
+# temps d'une exécution, ce qui supprime la question du redémarrage.
+#
+# Les trois réglages du planificateur local ont leur équivalent :
+#   max_instances = 1     → concurrencyPolicy: Forbid
+#   coalesce = true       → startingDeadlineSeconds borne le rattrapage
+#   misfire_grace_time    → idem, une heure
+#
+# Le verrou de fichier reste en place à l'intérieur du conteneur : il garantit
+# qu'une exécution lancée à la main ne croise pas la planifiée.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eds-pipeline
+  namespace: eds
+spec:
+  schedule: "0 2 * * *"
+  timeZone: "Europe/Paris"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 30
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: eds-pipeline
+        spec:
+          restartPolicy: OnFailure
+          # Aucun de ces conteneurs ne parle à l'API de Kubernetes. Sans cette ligne,
+          # le cluster leur monte pourtant à chacun un jeton de compte de service :
+          # un conteneur compromis y trouverait une porte d'entrée sur le plan de
+          # contrôle, gratuitement et pour rien.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            # Sans fsGroup, un disque managé est monté root:root en 0755 et le
+            # conteneur, qui ne tourne PAS en root, ne peut rien y écrire. La
+            # panne est silencieuse au montage et n'apparaît qu'à la première
+            # écriture — ici, sur les 92 dépôts d'un coup.
+            fsGroup: 10001
+          containers:
+            - name: eds
+              image: credschurecette.azurecr.io/eds:1.0.0
+              args: ["eds", "run"]
+              envFrom:
+                - configMapRef:
+                    name: eds-config
+                - secretRef:
+                    name: eds-secrets
+              env:
+                - name: CLICKHOUSE_HOST
+                  value: clickhouse.eds.svc.cluster.local
+                - name: CLICKHOUSE_PORT
+                  value: "8123"
+                - name: METABASE_URL
+                  value: http://metabase.eds.svc.cluster.local:3000
+                - name: EDS_SOURCE_PATH
+                  value: /filestorage
+                - name: EDS_LAKE_PATH
+                  value: /lake
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                  ephemeral-storage: 256Mi
+                limits:
+                  memory: 2Gi
+                  ephemeral-storage: 1Gi
+              volumeMounts:
+                - name: lake
+                  mountPath: /lake
+                - name: source
+                  mountPath: /filestorage
+                  readOnly: true
+          volumes:
+            # Le lake reste un disque managé tant que eds/lake.py écrit avec
+            # shutil.copy2 et os.replace. Aucun conteneur objet n'est provisionné
+            # pour lui : le provisionner d'avance ne servirait à rien tant que le
+            # code ne sait pas y écrire — voir docs/CLOUD.md, « ce qui reste à
+            # faire ».
+            - name: lake
+              persistentVolumeClaim:
+                claimName: eds-lake
+            # Le dépôt du CHU, monté en LECTURE SEULE comme en local : le
+            # conteneur ne peut pas altérer la source, même par erreur.
+            #
+            # C'est un partage de fichiers porté par un compte de stockage
+            # SÉPARÉ — la seule zone du système qui contienne des identités en
+            # clair. Voir infra/terraform/zone_de_depot.tf.
+            - name: source
+              csi:
+                driver: file.csi.azure.com
+                readOnly: true
+                volumeAttributes:
+                  shareName: filestorage
+                  secretName: eds-depot
+                  mountOptions: "dir_mode=0555,file_mode=0444,uid=10001,gid=10001,ro"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: eds-lake
+  namespace: eds
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 10Gi

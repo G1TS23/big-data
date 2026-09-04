@@ -1,0 +1,115 @@
+# ClickHouse — le moteur, et le seul composant qui détient les données.
+#
+# StatefulSet et non Deployment : l'identité du pod et son volume doivent
+# survivre à un redémarrage. Un Deployment recréerait un pod anonyme avec un
+# disque neuf, ce qui reviendrait à perdre l'entrepôt sans erreur visible.
+#
+# Aucun Service de type LoadBalancer : le moteur n'est joignable que depuis
+# l'intérieur du cluster. C'est la traduction, au niveau du réseau, du
+# cloisonnement que l'entrepôt applique au niveau des comptes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: eds
+spec:
+  clusterIP: None
+  selector:
+    app: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: natif
+      port: 9000
+      targetPort: 9000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: eds
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+  template:
+    metadata:
+      labels:
+        app: clickhouse
+    spec:
+      # Aucun de ces conteneurs ne parle à l'API de Kubernetes. Sans cette ligne,
+      # le cluster leur monte pourtant à chacun un jeton de compte de service :
+      # un conteneur compromis y trouverait une porte d'entrée sur le plan de
+      # contrôle, gratuitement et pour rien.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        fsGroup: 101
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:25.3
+          ports:
+            - name: http
+              containerPort: 8123
+            - name: natif
+              containerPort: 9000
+          env:
+            - name: CLICKHOUSE_USER
+              value: eds_admin
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: eds-secrets
+                  key: CLICKHOUSE_ADMIN_PASSWORD
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "1"
+          # Le même contrôle qu'en local : docker-compose interrogeait déjà
+          # /ping avant de démarrer Metabase.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+              ephemeral-storage: 512Mi
+            limits:
+              memory: 6Gi
+              ephemeral-storage: 3Gi
+          volumeMounts:
+            - name: donnees
+              mountPath: /var/lib/clickhouse
+            - name: journaux
+              mountPath: /var/log/clickhouse-server
+      volumes:
+        # Les journaux sur un volume ÉPHÉMÈRE et borné. En local ils pesaient
+        # 487 Mio pour 155 Mio de données : sans borne, ils rempliraient le
+        # disque avant l'entrepôt.
+        - name: journaux
+          emptyDir:
+            sizeLimit: 2Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: donnees
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # Disque managé Azure, chiffré au repos par défaut. Le nommer
+        # explicitement évite de dépendre de la classe par défaut du cluster,
+        # qui peut changer d'une version à l'autre.
+        storageClassName: managed-csi
+        resources:
+          requests:
+            storage: 20Gi

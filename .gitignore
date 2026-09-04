@@ -57,15 +57,15 @@ venv/
 .DS_Store
 
 # ─── Infrastructure ──────────────────────────────────────────────────────────
-# La branche « cloud » porte infra/. Sur main, le répertoire peut subsister dans
-# l'arbre de travail après un changement de branche : ces règles évitent qu'un
-# « git add -A » n'y ramasse le fournisseur téléchargé (236 Mo) ou, bien pire,
-# l'état de Terraform.
-#
-# L'ÉTAT EST UN SECRET : Terraform y écrit en clair tout ce qu'il connaît, dont
-# le mot de passe de la base managée et la clé du compte de stockage.
+# Le fournisseur téléchargé pèse 236 Mo et se récupère par « terraform init ».
+# Le répertoire subsiste dans l'arbre de travail après un changement de branche,
+# où rien n'empêcherait un « git add -A » de le ramasser.
 infra/terraform/.terraform/
 infra/terraform/.terraform.lock.hcl
+
+# L'ÉTAT EST UN SECRET : Terraform y écrit en clair tout ce qu'il connaît, dont
+# le mot de passe de la base managée et la clé du compte de stockage. Il vit
+# dans un stockage distant chiffré, jamais dans git.
 *.tfstate
 *.tfstate.*
 *.tfplan

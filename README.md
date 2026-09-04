@@ -164,9 +164,14 @@ eds/         orchestrateur — un module par étape du pipeline :
              le moteur.
 tests/       tests des règles métier et de la pseudonymisation
 docs/        DOSSIER.md (Partie 1 + évolution) · EXPLOITATION.md (Partie 2)
-             VALIDATION.md (réconciliation et recalculs) · captures
+             CLOUD.md (Partie 3, bonus) · VALIDATION.md (réconciliation et
+             recalculs) · captures
              outils/ reconcilier.py, generer_env.py, capture_terminal.py,
-                     verrouiller.py
+                     verrouiller.py, markdown_min.py, rapport.py
+infra/       l'infrastructure décrite, pour la Partie 3 :
+               terraform/  réseau, cluster, registre, coffre, zone de dépôt
+               kubernetes/ manifestes de l'entrepôt sur le cluster
+               deposer-secrets.sh · secrets-kubernetes.sh
 sql/dashboards/  requêtes des cartes, versionnées
 config/dashboards.yml  spécification des tableaux de bord
 ```
@@ -178,11 +183,16 @@ fabriquent d'une commande, et sortent hors du dépôt — un livrable ne se
 versionne pas lui-même :
 
 ```bash
-make livrables        # ../rendu/rapport-eds-chu.pdf + ../rendu/eds-chu-depot.zip
+make livrables                        # ../rendu/
+make livrables RENDU=../rendu-cloud   # la variante qui porte la Partie 3
 ```
 
-Le rapport assemble les trois documents de `docs/`, images et schémas
-compris, en un PDF d'une quarantaine de pages. Il est produit *depuis* ces
+La destination est explicite parce que les deux versions coexistent : le rendu
+sûr, sans le cloud, et celui qui l'inclut. Un travail en cours ne doit pas
+écraser ce qu'on est certain de pouvoir remettre.
+
+Le rapport assemble les documents de `docs/`, images et schémas compris, en un
+PDF d'une soixantaine de pages. Il est produit *depuis* ces
 documents, donc il ne peut pas en diverger. Chrome l'imprime en mode headless :
 c'est le seul moteur qui rende les schémas Mermaid.
 
@@ -190,8 +200,28 @@ L'archive est faite par `git archive`, et non par `zip` : seul ce qui est
 versionné y entre — ni `.venv`, ni `lake/`, ni `logs/`, ni `.env`. Le correcteur
 y trouve exactement ce qu'un `git clone` lui donnerait, données du CHU comprises.
 
+## Le passage au cloud, en bonus
+
+`infra/` décrit l'entrepôt porté sur Azure : Terraform pour le socle, manifestes
+Kubernetes pour les services. C'est un ajout hors du périmètre demandé, et le
+projet se rend sans lui — rien de ce qui précède n'en dépend.
+
+Cette description se vérifie à trois niveaux, du moins coûteux au plus complet :
+
+```bash
+make infra          # hors ligne : terraform validate + kubeconform
+make infra-plan     # confronte à l'API d'Azure, sans rien créer (« az login »)
+```
+
+Le troisième niveau — déployer, capturer, détruire — a été joué : les sept
+indicateurs calculés sur le cluster sont identiques à ceux du poste, les 41
+contrôles de cloisonnement s'y rejouent, et l'infrastructure a été détruite puis
+le coffre purgé. Le détail, les cinq défauts que le déploiement a révélés et les
+limites assumées sont dans [docs/CLOUD.md](docs/CLOUD.md).
+
 ## Documentation
 
 - [Dossier de conception](docs/DOSSIER.md) — Partie 1 (besoin, architecture, traitements, indicateurs, limites) et l'évolution demandée par le CHU
 - [Guide d'exploitation](docs/EXPLOITATION.md) — lancement, planification, reprise sur incident
 - [Validation des chiffres](docs/VALIDATION.md) — réconciliation source ↔ entrepôt, recalcul manuel des indicateurs, confrontation au corrigé, justification de l'évolution, limites chiffrées
+- [Passage au cloud](docs/CLOUD.md) — Partie 3, hors périmètre demandé : l'infrastructure portée sur Azure, déployée, vérifiée et détruite

@@ -1,6 +1,6 @@
 # Raccourcis d'exploitation. Les commandes restent utilisables telles quelles
 # sans make ; voir docs/EXPLOITATION.md.
-.PHONY: aide env socle pipeline tests verrou capture rapport livrables
+.PHONY: aide env socle pipeline tests verrou capture rapport livrables infra infra-plan arbre-propre
 
 aide:
 	@echo "env       écrit .env, sel et mots de passe tirés au sort"
@@ -11,6 +11,8 @@ aide:
 	@echo "capture   régénère l'image de la démonstration du cloisonnement"
 	@echo "rapport   assemble les documents en un PDF, hors du dépôt"
 	@echo "livrables rapport PDF + archive du dépôt, dans ../rendu/"
+	@echo "infra     vérifie l'infrastructure : terraform + manifestes k8s"
+	@echo "infra-plan  confronte l'infrastructure à l'API Azure, sans rien créer"
 
 # N'écrase jamais un .env existant : les secrets en place sont irremplaçables
 # (changer EDS_SALT casse la continuité des pseudonymes).
@@ -44,13 +46,55 @@ capture:
 # ─── Les deux livrables ──────────────────────────────────────────────────────
 # Le rendu attend le dépôt ET un rapport lisible sans lui. Les deux sortent
 # dans ../rendu/, hors du dépôt : un livrable ne se versionne pas lui-même.
+# RENDU choisit la destination. Le défaut ../rendu/ porte le livrable SÛR,
+# celui de la branche main ; la branche cloud écrit ailleurs, faute de quoi un
+# travail non abouti écraserait ce qu'on est certain de pouvoir rendre :
+#   make livrables RENDU=../rendu-cloud
+RENDU ?= ../rendu
+
 rapport:
-	python3 docs/outils/rapport.py
+	python3 docs/outils/rapport.py $(RENDU)/rapport-eds-chu.pdf
 
 # git archive, et non zip : seul ce qui est VERSIONNÉ part: ni .venv, ni lake,
 # ni logs, ni .env — les mêmes fichiers que ce qu'un correcteur obtient en
 # clonant, ce qui rend l'archive et le dépôt indiscernables.
-livrables: rapport
-	mkdir -p ../rendu
-	git archive --format=zip --prefix=eds-chu/ -o ../rendu/eds-chu-depot.zip HEAD
-	@ls -lh ../rendu/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'
+# Les deux livrables ne lisent PAS la même source : le rapport est fabriqué
+# depuis les fichiers du disque, l'archive depuis le dernier commit. Un document
+# modifié mais non committé les fait donc diverger EN SILENCE — le PDF porte la
+# modification, l'archive porte l'état d'avant. C'est arrivé, et rien ne l'a
+# signalé. D'où ce garde-fou, qui refuse de produire une paire incohérente.
+livrables: arbre-propre rapport
+	mkdir -p $(RENDU)
+	git archive --format=zip --prefix=eds-chu/ -o $(RENDU)/eds-chu-depot.zip HEAD
+	@ls -lh $(RENDU)/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'
+
+# ─── Vérification de l'infrastructure ────────────────────────────────────────
+# Sans compte cloud, et sans rien installer : Terraform valide la configuration
+# contre le schéma RÉEL du fournisseur, kubeconform valide les manifestes contre
+# les schémas de l'API Kubernetes. C'est ce qui distingue une infrastructure
+# décrite d'un YAML seulement plausible.
+#
+# Ce que cela NE vérifie pas : les chaînes libres — noms de jeux de permissions,
+# gabarits de nœuds — qui n'existent que côté API. Seul un « terraform plan »
+# contre un compte les confronterait.
+infra:
+	@echo "── format"
+	terraform -chdir=infra/terraform fmt -check -recursive
+	@echo "── schéma du fournisseur"
+	terraform -chdir=infra/terraform init -backend=false -input=false >/dev/null
+	terraform -chdir=infra/terraform validate
+	@echo "── manifestes Kubernetes"
+	docker run --rm -v "$(PWD)/infra/kubernetes:/w" ghcr.io/yannh/kubeconform:latest \
+	  -summary -strict /w
+
+# Le niveau supérieur de vérification : l'API répond, mais rien n'est créé.
+# Demande « az login ». Ne coûte rien.
+infra-plan:
+	ARM_SUBSCRIPTION_ID=$$(az account show --query id -o tsv) \
+	  terraform -chdir=infra/terraform plan -input=false
+
+arbre-propre:
+	@test -z "$$(git status --porcelain)" || { \
+	  echo "L'arbre de travail n'est pas propre : le rapport viendrait du disque"; \
+	  echo "et l'archive du dernier commit, et les deux livrables divergeraient."; \
+	  echo; git status --short; exit 1; }
