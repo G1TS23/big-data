@@ -8,6 +8,15 @@
 # lake. Qui peut lire l'entrepôt ne doit pas pouvoir lire les identités : la
 # séparation des droits n'a de sens que si elle porte sur des objets distincts.
 
+# Pas de bloc « identity » ici non plus. Une identité portée par le compte de
+# stockage servirait à chiffrer avec une clé gérée par le client ; le chiffrement
+# au repos d'Azure est déjà actif, et la clé du client relève d'un choix
+# contractuel que ce projet n'a pas à trancher.
+#
+# Le vrai progrès serait ailleurs, et il reste à faire : le pilote CSI monte ce
+# partage avec la CLÉ du compte, déposée dans le coffre. Une identité de charge
+# de travail supprimerait ce secret partagé — c'est la piste, pas le bloc que
+# l'analyse statique réclame.
 resource "azurerm_storage_account" "depot" {
   name                = "st${local.prefixe_compact}src"
   resource_group_name = azurerm_resource_group.eds.name

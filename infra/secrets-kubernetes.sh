@@ -21,11 +21,18 @@ if [[ -z "$COFFRE" || -z "$GROUPE" ]]; then
   exit 2
 fi
 
-lire() { az keyvault secret show --vault-name "$COFFRE" --name "$1" --query value -o tsv; }
+lire() {
+  local nom="$1"
+  az keyvault secret show --vault-name "$COFFRE" --name "$nom" --query value -o tsv
+}
 
 # --dry-run=client | apply : idempotent, et ne laisse aucune valeur en ligne de
 # commande visible par un autre processus du cluster.
-appliquer() { kubectl apply -n eds -f - >/dev/null; echo "  ✓ $1"; }
+appliquer() {
+  local nom="$1"
+  kubectl apply -n eds -f - >/dev/null
+  echo "  ✓ $nom"
+}
 
 echo "Transport des secrets depuis $COFFRE"
 

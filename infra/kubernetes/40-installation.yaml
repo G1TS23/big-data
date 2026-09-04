@@ -17,6 +17,11 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # Aucun de ces conteneurs ne parle à l'API de Kubernetes. Sans cette ligne,
+      # le cluster leur monte pourtant à chacun un jeton de compte de service :
+      # un conteneur compromis y trouverait une porte d'entrée sur le plan de
+      # contrôle, gratuitement et pour rien.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -32,6 +37,18 @@ spec:
           env:
             - name: CLICKHOUSE_HOST
               value: clickhouse.eds.svc.cluster.local
+          # Trois installations brèves — quelques secondes de DDL, de création de
+          # comptes, de publication de cartes. Sans requête déclarée, un pod tombe
+          # en qualité de service « BestEffort » et devient le premier évincé sous
+          # pression : au pire moment, puisque c'est l'installation qui échouerait.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+            limits:
+              memory: 1Gi
+              ephemeral-storage: 512Mi
 ---
 apiVersion: batch/v1
 kind: Job
@@ -43,6 +60,7 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -60,6 +78,14 @@ spec:
               value: clickhouse.eds.svc.cluster.local
             - name: METABASE_URL
               value: http://metabase.eds.svc.cluster.local:3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+            limits:
+              memory: 1Gi
+              ephemeral-storage: 512Mi
 ---
 apiVersion: batch/v1
 kind: Job
@@ -71,6 +97,7 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -90,3 +117,11 @@ spec:
               value: clickhouse.eds.svc.cluster.local
             - name: METABASE_URL
               value: http://metabase.eds.svc.cluster.local:3000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+            limits:
+              memory: 1Gi
+              ephemeral-storage: 512Mi

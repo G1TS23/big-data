@@ -33,6 +33,11 @@ spec:
             app: eds-pipeline
         spec:
           restartPolicy: OnFailure
+          # Aucun de ces conteneurs ne parle à l'API de Kubernetes. Sans cette ligne,
+          # le cluster leur monte pourtant à chacun un jeton de compte de service :
+          # un conteneur compromis y trouverait une porte d'entrée sur le plan de
+          # contrôle, gratuitement et pour rien.
+          automountServiceAccountToken: false
           securityContext:
             runAsNonRoot: true
             runAsUser: 10001
@@ -65,8 +70,10 @@ spec:
                 requests:
                   cpu: 200m
                   memory: 512Mi
+                  ephemeral-storage: 256Mi
                 limits:
                   memory: 2Gi
+                  ephemeral-storage: 1Gi
               volumeMounts:
                 - name: lake
                   mountPath: /lake

@@ -31,6 +31,11 @@ spec:
       labels:
         app: metabase
     spec:
+      # Aucun de ces conteneurs ne parle à l'API de Kubernetes. Sans cette ligne,
+      # le cluster leur monte pourtant à chacun un jeton de compte de service :
+      # un conteneur compromis y trouverait une porte d'entrée sur le plan de
+      # contrôle, gratuitement et pour rien.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 2000
@@ -69,5 +74,7 @@ spec:
             requests:
               cpu: 300m
               memory: 1Gi
+              ephemeral-storage: 256Mi
             limits:
               memory: 3Gi
+              ephemeral-storage: 1Gi

@@ -40,6 +40,11 @@ spec:
       labels:
         app: clickhouse
     spec:
+      # Aucun de ces conteneurs ne parle à l'API de Kubernetes. Sans cette ligne,
+      # le cluster leur monte pourtant à chacun un jeton de compte de service :
+      # un conteneur compromis y trouverait une porte d'entrée sur le plan de
+      # contrôle, gratuitement et pour rien.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 101
@@ -80,8 +85,10 @@ spec:
             requests:
               cpu: 500m
               memory: 2Gi
+              ephemeral-storage: 512Mi
             limits:
               memory: 6Gi
+              ephemeral-storage: 3Gi
           volumeMounts:
             - name: donnees
               mountPath: /var/lib/clickhouse
