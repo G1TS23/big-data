@@ -34,7 +34,8 @@ class TestSpecification:
         """Un tableau de bord ne lit que gold ou ops, jamais silver ni bronze."""
         for _, carte in CARTES:
             sql = (SQL_DASHBOARDS / carte["sql"]).read_text(encoding="utf-8").lower()
-            assert "silver." not in sql and "bronze." not in sql, carte["sql"]
+            assert "silver." not in sql, carte["sql"]
+            assert "bronze." not in sql, carte["sql"]
 
     def test_les_cartes_ne_se_chevauchent_pas(self):
         """La grille Metabase fait 24 colonnes ; deux cartes ne peuvent pas
@@ -61,7 +62,8 @@ class TestSouverainetéDeLaSpecification:
         age = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_age.sql")
         sexe = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_sexe.sql")
         assert age["axe_x"] == sexe["axe_x"] == "Pathologie"
-        assert age["col"] == sexe["col"] and age["size_x"] == sexe["size_x"]
+        assert age["col"] == sexe["col"], "les deux cartes ne démarrent pas à la même colonne"
+        assert age["size_x"] == sexe["size_x"], "les deux cartes n'ont pas la même largeur"
         assert sexe["row"] == age["row"] + age["size_y"], "les cartes ne se suivent pas"
 
     def test_les_tranches_dage_suivent_une_rampe_ordonnee(self):
@@ -69,7 +71,8 @@ class TestSouverainetéDeLaSpecification:
         qui n'a pas d'ordre, appelle des teintes distinctes."""
         age = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_age.sql")
         sexe = next(c for _, c in CARTES if c["sql"] == "rech_pathologie_sexe.sql")
-        assert age.get("rampe") and not sexe.get("rampe")
+        assert age.get("rampe"), "un axe ordonné appelle une rampe d'une seule teinte"
+        assert not sexe.get("rampe"), "le sexe n'a pas d'ordre : la rampe le nierait"
 
     def test_aucune_carte_ne_depend_d_un_filtre(self):
         """Le mécanisme de filtre a été retiré : plus aucune requête ne doit
