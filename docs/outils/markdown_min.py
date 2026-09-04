@@ -65,9 +65,13 @@ def _tableau(lignes: list[str]) -> str:
 # L'ordre du tuple _REGLES est significatif : la première qui reconnaît gagne.
 
 _SEPARATEUR = re.compile(r"^(-{3,}|\*{3,})\s*$")
-_TITRE = re.compile(r"^(#{1,6})\s+(.*)$")
+# Quantificateurs possessifs : « \s++ » ne rend jamais ce qu'il a pris, ce qui
+# supprime le retour arrière entre l'espace et le reste de la ligne — les deux
+# peuvent matcher un espace, et l'analyseur y voit un coût super-linéaire.
+# Exige Python 3.11, que le projet impose déjà.
+_TITRE = re.compile(r"^(#{1,6})\s++(.*)$")
 _ALIGNEMENT = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
-_PUCE = re.compile(r"^(\s*)([-*]|\d+\.)\s+(.*)$")
+_PUCE = re.compile(r"^(\s*+)([-*]|\d+\.)\s++(.*)$")
 
 # Un paragraphe s'arrête devant ce qui ouvre un autre bloc.
 _ARRETS = ("#", "|", ">", "```", "- ", "* ")
