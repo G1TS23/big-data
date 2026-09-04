@@ -537,6 +537,64 @@ d'attente ou un refus de permission au premier usage réel. C'est précisément 
 catégorie de panne qu'un `terraform validate` ne verra jamais, et c'est pourquoi
 le niveau 3 n'est pas une formalité de fin de parcours.
 
+### Ce que l'analyse statique a trouvé ensuite, et que le déploiement avait laissé passer
+
+La symétrie mérite d'être relevée. Une fois l'infrastructure déployée, vérifiée
+et détruite, une analyse SonarCloud de la demande de fusion a signalé
+vingt-cinq points — sur du code qui avait pourtant fonctionné de bout en
+bout. C'est l'exact miroir de la section précédente : le déploiement attrape ce
+que la relecture manque, l'analyse statique attrape ce que le déploiement laisse
+passer, parce qu'un système peut très bien marcher tout en étant mal réglé.
+
+Vingt-deux étaient fondés et ont été corrigés :
+
+**Six pods montaient un jeton de compte de service.** Ni ClickHouse, ni
+Metabase, ni le pipeline, ni les trois jobs ne parlent à l'API de Kubernetes ;
+ils recevaient pourtant chacun un identifiant valide pour elle. Un conteneur
+compromis y aurait trouvé une porte d'entrée sur le plan de contrôle, sans que
+rien dans le fonctionnement ne le laisse voir. C'est une troisième fois le même
+motif que les politiques réseau et les comptes cloisonnés : retirer ce qui n'a
+pas d'usage plutôt que surveiller ce qui en a un.
+
+**Les trois jobs d'installation n'avaient aucune ressource déclarée**, là où le
+`CronJob` du pipeline en a. Ce n'était pas un arbitrage, c'était un oubli — et
+il les plaçait en qualité de service `BestEffort`, donc premiers évincés sous
+pression, au moment précis où l'entrepôt s'installe.
+
+**Le stockage éphémère n'était borné nulle part.** Le chapitre tenait déjà ce
+raisonnement pour les journaux de ClickHouse, sans l'étendre au reste.
+
+Trois points restent ouverts, délibérément. Leur formulation est d'ailleurs
+explicite — *« Make sure it is safe here »* : la règle demande une décision, elle
+n'affirme pas un défaut.
+
+**L'accès public du registre** (`S6329`, bloquant) est réel sur le fond : ce
+registre porte l'image qui manipule des données de santé. Mais le fermer ne le
+durcirait pas, il le rendrait injoignable. Le SKU Basic n'offre ni point de
+terminaison privé ni règle d'adresse — Microsoft réserve les deux au Premium.
+Sans chemin privé, couper l'accès public coupe aussi le cluster. Ce qui protège
+ce registre est ailleurs : compte administrateur désactivé, et un seul droit,
+`AcrPull`, accordé à la seule identité du cluster. L'attribut est donc rendu
+explicite plutôt que masqué, et la cible de production est nommée dans le code.
+
+**Les deux blocs `identity` réclamés** (`S6378`) sont refusés. Une identité
+portée par le registre ou par le compte de stockage ne sert qu'à ce que *ces
+ressources* appellent d'autres services — clés gérées par le client, tâches ACR
+— ce que nous ne faisons pas. L'authentification *vers* le registre passe déjà
+par une identité managée, celle du kubelet. Ajouter un bloc que rien ne consomme
+donnerait l'apparence d'un durcissement sans en produire un.
+
+Sur la zone de dépôt, l'analyse touche cependant juste à côté d'un vrai défaut :
+le pilote CSI monte le partage avec la clé du compte, déposée dans le coffre.
+Une identité de charge de travail supprimerait ce secret partagé. Ce n'est pas
+le bloc que la règle réclame, mais c'est le progrès qu'elle aurait dû désigner —
+et il reste à faire.
+
+La leçon de cette section complète celle de la précédente. Le déploiement révèle
+ce qui ne marche pas ; l'analyse statique révèle ce qui marche par chance.
+Refuser une règle est légitime, mais seulement en écrivant pourquoi : c'est la
+différence entre un écart assumé et un écart ignoré.
+
 ## 7. Le plan de migration
 
 Chaque étape est réversible et laisse l'installation locale intacte.
