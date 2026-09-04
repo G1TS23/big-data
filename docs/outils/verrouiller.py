@@ -46,7 +46,7 @@ def normaliser(nom: str) -> str:
 def empreintes(paquet: str, version: str, tag_python: str) -> list[str]:
     """Les roues de PyPI que l'image cible pourrait choisir, pour cette version."""
     url = f"https://pypi.org/pypi/{paquet}/{version}/json"
-    with urllib.request.urlopen(url, timeout=30) as reponse:  # noqa: S310 (PyPI, en https)
+    with urllib.request.urlopen(url, timeout=30) as reponse:  # noqa: S310  # PyPI, en https
         fichiers = json.load(reponse)["urls"]
 
     retenues = []

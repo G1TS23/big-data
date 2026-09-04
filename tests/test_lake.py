@@ -232,7 +232,8 @@ class TestJointureEntreFlux:
         contenu = resultat.lake_path.read_text(encoding="utf-8")
         assert "IPP9000001" not in contenu
         entete = next(csv.reader(resultat.lake_path.open(encoding="utf-8")))
-        assert "patient_id" not in entete and "patient_key" in entete
+        assert "patient_id" not in entete, "l'identifiant en clair survit dans l'en-tête"
+        assert "patient_key" in entete, "le pseudonyme est absent de l'en-tête"
 
 
 class TestQuarantaine:
