@@ -1,6 +1,6 @@
 # Raccourcis d'exploitation. Les commandes restent utilisables telles quelles
 # sans make ; voir docs/EXPLOITATION.md.
-.PHONY: aide env socle pipeline tests verrou capture rapport livrables infra infra-plan
+.PHONY: aide env socle pipeline tests verrou capture rapport livrables infra infra-plan arbre-propre
 
 aide:
 	@echo "env       écrit .env, sel et mots de passe tirés au sort"
@@ -58,7 +58,12 @@ rapport:
 # git archive, et non zip : seul ce qui est VERSIONNÉ part: ni .venv, ni lake,
 # ni logs, ni .env — les mêmes fichiers que ce qu'un correcteur obtient en
 # clonant, ce qui rend l'archive et le dépôt indiscernables.
-livrables: rapport
+# Les deux livrables ne lisent PAS la même source : le rapport est fabriqué
+# depuis les fichiers du disque, l'archive depuis le dernier commit. Un document
+# modifié mais non committé les fait donc diverger EN SILENCE — le PDF porte la
+# modification, l'archive porte l'état d'avant. C'est arrivé, et rien ne l'a
+# signalé. D'où ce garde-fou, qui refuse de produire une paire incohérente.
+livrables: arbre-propre rapport
 	mkdir -p $(RENDU)
 	git archive --format=zip --prefix=eds-chu/ -o $(RENDU)/eds-chu-depot.zip HEAD
 	@ls -lh $(RENDU)/ | tail -n +2 | awk '{printf "  %-28s %s\n", $$9, $$5}'
@@ -87,3 +92,9 @@ infra:
 infra-plan:
 	ARM_SUBSCRIPTION_ID=$$(az account show --query id -o tsv) \
 	  terraform -chdir=infra/terraform plan -input=false
+
+arbre-propre:
+	@test -z "$$(git status --porcelain)" || { \
+	  echo "L'arbre de travail n'est pas propre : le rapport viendrait du disque"; \
+	  echo "et l'archive du dernier commit, et les deux livrables divergeraient."; \
+	  echo; git status --short; exit 1; }
